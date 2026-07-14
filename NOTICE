@@ -1,0 +1,17 @@
+honuware server components
+Copyright 2026 Knotty Yoga
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not use
+this file except in compliance with the License. You may obtain a copy of the
+License in the LICENSE file in this repository or at:
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Portions of this software were extracted from the Knotty Yoga server
+application. The extraction commit records the exact source revision in its
+message ("Initial extraction from knottyyoga@<SHA>").
+
+This product bundles no third-party source, but links the following libraries at
+build time, each under its own license (obtained via Conan): Boost, Crow,
+libpqxx, OpenSSL, libsodium, mailio, GoogleTest, Abseil, HowardHinnant/date,
+libcurl, libjpeg, libpng, libtiff, and zlib.

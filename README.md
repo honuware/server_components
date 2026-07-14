@@ -1,0 +1,88 @@
+# honuware — server components
+
+Reusable, application-agnostic C++ building blocks for Crow-based web servers,
+extracted from a production application. A new site links these components and
+supplies only its own domain code (tables, endpoints, business logic) on top.
+
+## The layer stack
+
+Components stack in fixed layers; a target may only link targets **below** it.
+This is enforced at configure time by `cmake/honuware_layering.cmake` — an
+upward or sideways edge fails the build.
+
+```
+honuware_tests        (component test-case bag — every *_test.cpp)
+      ▲
+honuware_testing      reusable harness: Postgres test support, gtest matchers,
+      │               endpoint test helper, service doubles (secrets/mail/square/http)
+      ▼
+honuware_platform     framework db_schema + table_helpers, business_logic
+      │               (auth / images / migration engine), web core (WebApp,
+      │               middleware guards, generic CRUD + admin-metadata endpoints)
+      ▼
+honuware_services     util/secrets + util/mail (+ the config_secrets storage table)
+      ▼
+honuware_data         sql_util core (database_access/Transaction, schema, json,
+      │               stored procedures)
+      ▼
+honuware_foundation   util core (types, json_value, logging, thread_pool,
+                      date_time, error handling, file util, image resize, http)
+```
+
+`honuware_square` (a generic Square API client) is a **side branch** on
+`honuware_foundation` only — the platform layer deliberately may not link it;
+only a consuming app's payment logic does.
+
+## What is NOT here
+
+Anything application- or brand-specific: domain tables (classes, products,
+purchases, …), app endpoints, payment/scheduling business logic, brand strings,
+and the app composition roots (`main.cpp`, database bootstrap, endpoint
+registration). Those live in the consuming application. If the standalone build
+here ever needs an application header, a boundary has been broken.
+
+## Build & test
+
+Prerequisites: a C++20 compiler (MSVC 2019+ on Windows, GCC on Linux),
+CMake 3.24+, Conan 2.x, and a reachable PostgreSQL instance for the tests.
+
+```bash
+mkdir build && cd build
+conan install ..
+cmake ..
+cmake --build .
+```
+
+This produces the seven component libraries and the `honuware_test_runner`
+executable. The runner composes a **framework-only** schema (via
+`MakeFrameworkTables`) into a database named `honuware_test` and runs the full
+component test suite against it:
+
+```bash
+./honuware_test_runner
+```
+
+The test database name (`honuware_test`) is deliberately distinct so the suite
+can share a Postgres instance with an application's own test database without
+collision.
+
+## Consuming these components
+
+An application pins a specific commit and pulls the components in via CMake
+FetchContent:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(honuware
+    GIT_REPOSITORY https://github.com/honuware/server_components.git
+    GIT_TAG        <full commit SHA>)
+FetchContent_MakeAvailable(honuware)
+# honuware_platform, honuware_testing, ... are now ordinary targets to link.
+```
+
+For local co-development against a working tree, override with
+`-DFETCHCONTENT_SOURCE_DIR_HONUWARE=/path/to/server_components`.
+
+## License
+
+Apache-2.0. See `LICENSE` and `NOTICE`.

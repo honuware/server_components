@@ -1,0 +1,105 @@
+# Phase 3.1.3: framework table_helpers (honuware_platform), split from
+# src/sql_util/table_helpers/. The app half stays in src/.
+
+target_sources(honuware_platform
+    PRIVATE
+    admin_alerts.h
+    admin_alerts.cpp
+    admin_column_data_info.h
+    admin_column_data_info.cpp
+    admin_column_enums.h
+    admin_column_enums.cpp
+    admin_column_redactions.h
+    admin_column_redactions.cpp
+    admin_enums.h
+    admin_enums.cpp
+    admin_enum_values.h
+    admin_enum_values.cpp
+    admin_column_friendly_names.h
+    admin_column_friendly_names.cpp
+    admin_table_friendly_names.h
+    admin_table_friendly_names.cpp
+    admin_table_permissions.h
+    admin_table_permissions.cpp
+    admin_top_level_tables.h
+    admin_top_level_tables.cpp
+    admin_nested_tables.h
+    admin_nested_tables.cpp
+    admin_table_display_template.h
+    admin_table_display_template.cpp
+    allowed_tables.h
+    allowed_tables.cpp
+    auth_events.h
+    auth_events.cpp
+    device_tokens.h
+    device_tokens.cpp
+    email_verifications.h
+    email_verifications.cpp
+    idempotency_keys.h
+    idempotency_keys.cpp
+    login_attempts.h
+    login_attempts.cpp
+    people.h
+    people.cpp
+    permissions.h
+    permissions.cpp
+    permission_implications.h
+    permission_implications.cpp
+    photo_instances.h
+    photo_instances.cpp
+    source_photos.h
+    source_photos.cpp
+    scaled_photos.h
+    scaled_photos.cpp
+    photo_support_tables.h
+    photo_support_tables.cpp
+    table_item_photos.h
+    table_item_photos.cpp
+    role_assignments.h
+    role_assignments.cpp
+    role_permissions.h
+    role_permissions.cpp
+    roles.h
+    roles.cpp
+    schema_migrations.h
+    schema_migrations.cpp
+    sessions.h
+    sessions.cpp
+)
+
+target_sources(${HONUWARE_TESTS_TARGET}
+    PUBLIC
+    admin_alerts_test.cpp
+    admin_column_data_info_test.cpp
+    auth_events_test.cpp
+    admin_column_enums_test.cpp
+    admin_column_redactions_test.cpp
+    admin_enums_test.cpp
+    admin_enum_values_test.cpp
+    admin_column_friendly_names_test.cpp
+    admin_table_friendly_names_test.cpp
+    admin_table_permissions_test.cpp
+    admin_top_level_tables_test.cpp
+    admin_nested_tables_test.cpp
+    admin_table_display_template_test.cpp
+    allowed_tables_test.cpp
+    permission_implications_test.cpp
+    schema_migrations_test.cpp
+    people_test.cpp
+    email_verifications_test.cpp
+    sessions_test.cpp
+    device_tokens_test.cpp
+    roles_test.cpp
+    permissions_test.cpp
+    role_permissions_test.cpp
+    role_assignments_test.cpp
+    idempotency_keys_test.cpp
+    login_attempts_test.cpp
+    photo_instances_test.cpp
+    source_photos_test.cpp
+    scaled_photos_test.cpp
+    photo_support_tables_test.cpp
+    table_item_photos_test.cpp
+)
+
+target_link_libraries(${HONUWARE_TESTS_TARGET} PUBLIC  ${PQXX_LIB} ${GTEST_LIB})

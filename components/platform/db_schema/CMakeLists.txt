@@ -1,0 +1,73 @@
+# Phase 3.1.3: framework db_schema (honuware_platform), split from
+# src/db_schema/. The app half stays in src/.
+
+target_sources(honuware_platform
+    PRIVATE
+    admin_alerts.h
+    admin_alerts.cpp
+    admin_column_data_info.h
+    admin_column_data_info.cpp
+    admin_column_enums.h
+    admin_column_enums.cpp
+    admin_column_redactions.h
+    admin_column_redactions.cpp
+    admin_enums.h
+    admin_enums.cpp
+    admin_enum_values.h
+    admin_enum_values.cpp
+    admin_column_friendly_names.h
+    admin_column_friendly_names.cpp
+    admin_table_friendly_names.h
+    admin_table_friendly_names.cpp
+    admin_table_permissions.h
+    admin_table_permissions.cpp
+    admin_top_level_tables.h
+    admin_top_level_tables.cpp
+    admin_nested_tables.h
+    admin_nested_tables.cpp
+    admin_table_display_template.h
+    admin_table_display_template.cpp
+    allowed_tables.h
+    allowed_tables.cpp
+    auth_events.h
+    auth_events.cpp
+    device_tokens.h
+    device_tokens.cpp
+    email_verifications.h
+    email_verifications.cpp
+    idempotency_keys.h
+    idempotency_keys.cpp
+    login_attempts.h
+    login_attempts.cpp
+    make_framework_tables.h
+    make_framework_tables.cpp
+    people.h
+    people.cpp
+    permissions.h
+    permissions.cpp
+    permission_implications.h
+    permission_implications.cpp
+    photos.h
+    photos.cpp
+    role_assignments.h
+    role_assignments.cpp
+    role_permissions.h
+    role_permissions.cpp
+    roles.h
+    roles.cpp
+    schema_migrations.h
+    schema_migrations.cpp
+    sessions.h
+    sessions.cpp
+)
+
+target_sources(${HONUWARE_TESTS_TARGET}
+    PUBLIC
+    device_tokens_test.cpp
+    email_verifications_test.cpp
+    people_test.cpp
+    role_assignments_test.cpp
+    role_permissions_test.cpp
+    sessions_test.cpp
+)
+
