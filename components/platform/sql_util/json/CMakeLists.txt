@@ -8,8 +8,10 @@ target_sources(honuware_platform
     database_rest_helper.cpp
 )
 
-# database_rest_helper_test.cpp exercises this framework helper against an APP
-# table (price_schedules) as its fixture, so it is app-coupled and was relocated
-# to src/sql_util/ (Phase 4.1). The production helper stays here in
-# honuware_platform. Follow-up: port that test to a framework table so it can
-# return to the component tree and restore standalone honuware coverage.
+# database_rest_helper_test.cpp exercises this framework helper entirely against
+# framework tables (people/orders/items), so it lives here in the component tree
+# and provides standalone honuware coverage.
+target_sources(${HONUWARE_TESTS_TARGET}
+    PUBLIC
+    database_rest_helper_test.cpp
+)
