@@ -36,10 +36,22 @@ target_sources(honuware_platform
 
 # Phase 2.6: the CookieManager test double ships in honuware_testing — it is a
 # framework auth double that endpoint_test_helper wires into the test WebApp.
+# Phase 4.2: person_verify_mail_test_util joins it in honuware_testing. It is a
+# reusable FRAMEWORK auth test utility (it wraps the framework person_verify_mail
+# builder to recover the encoded token from a sent verification-mail body),
+# consumed by BOTH framework tests (person_test) AND app endpoint tests
+# (register / verify / account_activation). Every OTHER shared test util already
+# lives in honuware_testing; leaving this one in the test-CASE bag
+# (${HONUWARE_TESTS_TARGET}) worked only while the framework and app test cases
+# shared one library — once extraction split them into honuware_tests vs the app's
+# test lib, the app tests could no longer resolve it. The harness is the one layer
+# both bags link, so it belongs here (next to cookie_manager_test_util).
 target_sources(honuware_testing
     PRIVATE
     cookie_manager_test_util.h
     cookie_manager_test_util.cpp
+    person_verify_mail_test_util.h
+    person_verify_mail_test_util.cpp
 )
 
 target_sources(${HONUWARE_TESTS_TARGET}
@@ -49,8 +61,6 @@ target_sources(${HONUWARE_TESTS_TARGET}
     login_gate_test.cpp
     person_test.cpp
     person_verify_mail_test.cpp
-    person_verify_mail_test_util.h
-    person_verify_mail_test_util.cpp
     proxy_trust_test.cpp
     quick_account_helper_test.cpp
     quick_account_welcome_mail_test.cpp
