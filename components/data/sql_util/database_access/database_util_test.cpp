@@ -3,6 +3,8 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#include <filesystem>
+
 #include "sql_util/database_common.h"
 #include "sql_util/database_access/database_crud_helpers.h"
 #include "util/file_util.h"
@@ -97,12 +99,18 @@ namespace DbUtil {
         TEST(DatabaseUtilTest, RunSqlFileBasic) {
             TestDatabaseUtil testDatabaseUtil;
             testDatabaseUtil.RunInTransaction("RunSqlStatementBasic", [&](Transaction& transaction) {
-                RunSqlFile(
-                    transaction,
-                    // Phase 3.1: database_access (and this test's SQL fixture)
-                    // moved from src/ to components/data/.
-                    "../components/data/sql_util/database_access/test/",
-                    "create_table.sql");
+                // Phase 4.2: derive the SQL fixture directory from __FILE__
+                // (absolute at compile time) so the test is independent of the
+                // process working directory AND of which source tree it was
+                // compiled from — honuware standalone vs a consumer's FetchContent
+                // clone. The previous "../components/..." path resolved relative to
+                // the runtime CWD, which only worked while a components/ tree sat
+                // one level above it. The fixture lives in the test/ subdirectory
+                // next to this file.
+                const std::string testSqlDir =
+                    std::filesystem::path(__FILE__).parent_path().generic_string()
+                    + "/test/";
+                RunSqlFile(transaction, testSqlDir, "create_table.sql");
                 EXPECT_THAT(DbMeta::ListTables(transaction),
                     Contains("people"));
                 });
