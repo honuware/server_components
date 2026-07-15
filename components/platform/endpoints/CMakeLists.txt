@@ -43,6 +43,8 @@ target_sources(honuware_platform
     resolve_fk_display.cpp
     db_schema.h
     db_schema.cpp
+    register_framework_endpoints.h
+    register_framework_endpoints.cpp
 )
 
 target_sources(${HONUWARE_TESTS_TARGET}
@@ -58,7 +60,6 @@ target_sources(${HONUWARE_TESTS_TARGET}
     get_rows_by_column_test.cpp
     get_row_test.cpp
     get_row_by_values_test.cpp
-    get_table_rows_test.cpp
     update_item_test.cpp
     endpoint_auth_helper_test.cpp
     cloudfront_origin_guard_test.cpp

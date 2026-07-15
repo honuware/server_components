@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "db_schema/make_framework_tables.h"
+#include "endpoints/register_framework_endpoints.h"
 #include "sql_util/schema/database_info.h"
 #include "test/src/util/global_database_test_support.h"
 
@@ -17,6 +18,11 @@
 // test database on the same Postgres instance.
 int main(int argc, char** argv)
 {
+    // Anchor the framework endpoint translation units into the link so their
+    // self-registering routes exist (otherwise every framework route 404s). This
+    // is the framework analogue of the app's Endpoints::RegisterAllEndpoints().
+    Endpoints::RegisterFrameworkEndpoints();
+
     DbSchema::DatabaseInfo databaseInfo("honuware_test");
     DbSchema::MakeFrameworkTables(databaseInfo);
 

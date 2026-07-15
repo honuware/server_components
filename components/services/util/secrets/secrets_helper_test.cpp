@@ -61,29 +61,12 @@ TEST(SecretsHelperTest, AddLookupSecretTestUtil) {
         });
 }
 
-TEST(SecretsHelperTest, SchedulingConfigDefaultsLoaded) {
-    auto secretsHelper = Secrets::Test::MakeTestSecretsHelper();
-    TestDatabaseUtil testDatabaseUtil;
-    testDatabaseUtil.RunInTransaction("SecretsHelperTest.SchedulingConfigDefaultsLoaded", [&](Transaction& transaction) {
-        EXPECT_EQ(secretsHelper->LookupSecret(transaction, "scheduling_lunch_threshold_minutes"), "300");
-        EXPECT_EQ(secretsHelper->LookupSecret(transaction, "scheduling_lunch_length_minutes"), "30");
-        EXPECT_EQ(secretsHelper->LookupSecret(transaction, "scheduling_min_buffer_minutes"), "10");
-        EXPECT_EQ(secretsHelper->LookupSecret(transaction, "scheduling_setup_buffer_minutes"), "0");
-        EXPECT_EQ(secretsHelper->LookupSecret(transaction, "scheduling_teardown_buffer_minutes"), "0");
-        EXPECT_EQ(secretsHelper->LookupSecret(transaction, "scheduling_walkin_min_buffer_minutes"), "15");
-    });
-}
-
-// Classes Phase 8 §2.3 — staff check-in window + history defaults are seeded.
-TEST(SecretsHelperTest, ClassCheckinConfigDefaultsLoaded) {
-    auto secretsHelper = Secrets::Test::MakeTestSecretsHelper();
-    TestDatabaseUtil testDatabaseUtil;
-    testDatabaseUtil.RunInTransaction("SecretsHelperTest.ClassCheckinConfigDefaultsLoaded", [&](Transaction& transaction) {
-        EXPECT_EQ(secretsHelper->LookupSecret(transaction, "class_checkin_window_before_minutes"), "60");
-        EXPECT_EQ(secretsHelper->LookupSecret(transaction, "class_checkin_window_after_minutes"), "180");
-        EXPECT_EQ(secretsHelper->LookupSecret(transaction, "class_checkin_history_weeks"), "4");
-    });
-}
+// NOTE: the app scheduling / class-checkin secret DEFAULT VALUES that used to be
+// asserted here are app-domain (no framework equivalent), and are verified
+// app-side in app_secret_values_test.cpp
+// (AppSecretValuesTest.RegistersDomainKeyDefaults). A framework-only build
+// registers no app defaults, so asserting those specific values does not belong in
+// this component test.
 
 // =====================================================================
 // Phase 8.1 of the security review: at-rest encryption.

@@ -12,6 +12,16 @@
 
 namespace {
 
+// The physical test database name. Resolved once, at Initialize() time, from the
+// injected DatabaseInfo's name — so each consuming repo drives its own database
+// (knottyyoga -> "test_knottyyoga", honuware -> "honuware_test") and their suites
+// can run concurrently against one Postgres instance without colliding on a shared
+// database. Defaults to kTestDatabaseName for any helper built before Initialize.
+std::string& ActiveTestDatabaseName() {
+    static std::string name{kTestDatabaseName};
+    return name;
+}
+
 class DatabaseHelperTest : public DatabaseHelperBase {
 public:
     DatabaseHelperTest();
@@ -38,7 +48,7 @@ private:
     std::string databaseName_;
 };
 
-DatabaseHelperTest::DatabaseHelperTest() : DatabaseHelperTest(DatabaseHelperInit{kTestDatabaseName}) {}
+DatabaseHelperTest::DatabaseHelperTest() : DatabaseHelperTest(DatabaseHelperInit{ActiveTestDatabaseName()}) {}
 
 DatabaseHelperTest::DatabaseHelperTest(const DatabaseHelperInit& init)
     : databaseName_(init.dbname) {
@@ -77,11 +87,13 @@ void DatabaseHelperTest::RunInTransaction(
 }
 
 std::shared_ptr<DatabaseHelperBase> MakeDatabaseHelperTest(std::string_view databaseName = kTestDatabaseName) {
-    // Force the test database name regardless of any KNOTTYYOGA_DB_NAME the
-    // developer might have exported: pass it as the default AND overwrite,
-    // so the test suite never wanders onto a real database.
-    DatabaseHelperInit init(kTestDatabaseName);
-    init.dbname = kTestDatabaseName;
+    // Force the ACTIVE test database name (resolved at Initialize() from the
+    // injected DatabaseInfo) regardless of the passed name or any *_DB_NAME the
+    // developer might have exported, so the test suite never wanders onto a real
+    // database.
+    const std::string& name = ActiveTestDatabaseName();
+    DatabaseHelperInit init(name);
+    init.dbname = name;
     auto databaseHelperTest = std::make_unique<DatabaseHelperTest>(init);
     return databaseHelperTest;
 }
@@ -111,10 +123,16 @@ bool GlobalDatabaseTestSupport::InitializeInternal(
     // instead of re-deriving it from the app's MakeDatabaseInfo.
     databaseInfo_ = databaseInfo;
 
+    // Resolve the physical test database name from the INJECTED schema, so each
+    // consuming repo drives its own database (knottyyoga -> test_knottyyoga,
+    // honuware -> honuware_test) and their suites can run concurrently without
+    // colliding on one shared database.
+    ActiveTestDatabaseName() = std::string(databaseInfo.GetDatabaseName());
+
     // The primary test database is just the first named database. databaseHelper_
     // starts as a no-database helper (see the constructor); rebind it to the
     // freshly created + populated primary database.
-    databaseHelper_ = CreateAndPopulateDatabase(kTestDatabaseName, databaseInfo);
+    databaseHelper_ = CreateAndPopulateDatabase(ActiveTestDatabaseName(), databaseInfo);
 
     // After the primary tables exist, make per-test CreateTable calls no-ops
     // via IF NOT EXISTS.

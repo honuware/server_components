@@ -10,21 +10,12 @@
 namespace Mail {
 namespace {
 
-// Phase 3.2 bootstrap seam: the sender identity must come from the
-// kMailSenderName / kMailSenderAddress config secrets (default VALUES registered
-// app-side in app_secret_values.cpp), NOT from the brand-free key-name constants.
-// The in-memory test secrets helper auto-loads the app defaults.
-
-TEST(TenantBrandingTest, LoadSenderAddressReturnsConfiguredSender) {
-    auto secrets = Secrets::Test::MakeTestSecretsHelper();
-    TestDatabaseUtil testDb;
-    testDb.RunInTransaction("LoadSenderAddressReturnsConfiguredSender",
-        [&](Transaction& transaction) {
-            MailAddress sender = LoadSenderAddress(*secrets, transaction);
-            EXPECT_EQ(sender.name, "Knotty Yoga and Spa");
-            EXPECT_EQ(sender.address, "knottyyogaandspa@gmail.com");
-        });
-}
+// Phase 3.2 bootstrap seam: the sender identity + branding come from the
+// kMailSenderName / kMailSenderAddress / kWebsiteAddressLogin config secrets, NOT
+// from any hardcoded brand. These framework tests set their own secret values and
+// assert them back, so they pass in a framework-only build (which registers no app
+// brand defaults). The app's specific brand DEFAULTS are verified app-side in
+// app_secret_values_test.cpp (AppSecretValuesTest.RegistersBrandDefaultsForFrameworkKeys).
 
 // Proves the value is read from the secret store, not baked into the constant:
 // overriding the secret changes the loaded sender.
@@ -43,17 +34,18 @@ TEST(TenantBrandingTest, LoadSenderAddressReflectsOverriddenSecrets) {
 
 TEST(TenantBrandingTest, LoadTenantBrandingPopulatesAllFields) {
     auto secrets = Secrets::Test::MakeTestSecretsHelper();
+    secrets->AddSecretTest(Secrets::kMailSenderName, "Test Studio");
+    secrets->AddSecretTest(Secrets::kMailSenderAddress, "sender@studio.test");
+    secrets->AddSecretTest(Secrets::kWebsiteAddressLogin, "https://studio.test/login");
     TestDatabaseUtil testDb;
     testDb.RunInTransaction("LoadTenantBrandingPopulatesAllFields",
         [&](Transaction& transaction) {
             TenantBranding branding = LoadTenantBranding(*secrets, transaction);
-            EXPECT_EQ(branding.studioName, "Knotty Yoga and Spa");
-            EXPECT_EQ(branding.senderName, "Knotty Yoga and Spa");
-            EXPECT_EQ(branding.senderAddress, "knottyyogaandspa@gmail.com");
-            // websiteUrl comes from kWebsiteAddressLogin (dev/prod differ), so
-            // assert it matches the configured secret rather than a literal.
-            EXPECT_EQ(branding.websiteUrl,
-                secrets->LookupSecretTest(Secrets::kWebsiteAddressLogin));
+            // studioName + senderName both derive from kMailSenderName today.
+            EXPECT_EQ(branding.studioName, "Test Studio");
+            EXPECT_EQ(branding.senderName, "Test Studio");
+            EXPECT_EQ(branding.senderAddress, "sender@studio.test");
+            EXPECT_EQ(branding.websiteUrl, "https://studio.test/login");
             EXPECT_FALSE(branding.websiteUrl.empty());
         });
 }

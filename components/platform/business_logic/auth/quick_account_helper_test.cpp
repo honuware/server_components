@@ -8,6 +8,7 @@
 #include "sql_util/table_helpers/people.h"
 #include "test/src/util/database_test_helper.h"
 #include "util/mail/mail_helper_test_util.h"
+#include "util/secrets/secret_keys.h"
 #include "util/secrets/secrets_helper_test_util.h"
 
 namespace Auth {
@@ -23,6 +24,10 @@ TEST(QuickAccountHelperTest, CreatesAccountWithPasswordAndWelcomeEmail) {
         DatabaseHelper db = testDb.GetDatabaseHelper();
         TestMailHelperPtr mailHelper = MakeTestMailHelper();
         auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        // The welcome-email subject substitutes the studio name from branding
+        // (kMailSenderName). Set it explicitly so this passes in a framework-only
+        // build too (which registers no app brand default).
+        secrets->AddSecretTest(Secrets::kMailSenderName, "Test Studio");
         QuickAccountHelper helper(db, secrets, mailHelper);
 
         QuickAccountResult result = helper.EnsureAccountWithWelcome(
@@ -51,9 +56,9 @@ TEST(QuickAccountHelperTest, CreatesAccountWithPasswordAndWelcomeEmail) {
         const auto& msg = mailHelper->GetMessages()[0];
         ASSERT_EQ(msg.GetTo().size(), 1u);
         EXPECT_EQ(msg.GetTo()[0].address, "maya@example.com");
-        // Subject uses the studio name from branding (kMailSenderName).
+        // Subject uses the studio name from branding (kMailSenderName), set above.
         EXPECT_EQ(msg.GetSubject(),
-                  "Welcome to Knotty Yoga and Spa - Your Account");
+                  "Welcome to Test Studio - Your Account");
         EXPECT_THAT(msg.GetBodyHtml(), HasSubstr("Maya"));
     });
 }

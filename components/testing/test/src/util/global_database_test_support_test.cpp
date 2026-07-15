@@ -53,19 +53,17 @@ TEST(GlobalDatabaseTestSupportTest, EnsureNamedDatabaseIsIdempotent) {
     EXPECT_EQ(&first.GetConnection(), &second.GetConnection());
 }
 
-TEST(GlobalDatabaseTestSupportTest, PrimaryDatabaseHasInjectedFrameworkAndAppTables) {
-    // main() initialized the primary database from the composed MakeDatabaseInfo,
-    // so both a framework table (people) and an app table (classes) exist. A
-    // COUNT(*) succeeds only if the table was created.
+TEST(GlobalDatabaseTestSupportTest, PrimaryDatabaseHasInjectedFrameworkTables) {
+    // main() initialized the primary database from the injected composed schema, so
+    // a framework table (people) exists. A COUNT(*) succeeds only if the table was
+    // created. This is a framework-harness test, so it asserts only framework
+    // tables; whether an app injected its own tables on top is an app-side concern.
     DatabaseHelper helper =
         GlobalDatabaseTestSupport::GetInstance().GetDatabaseHelper();
     helper.RunInTransaction("primary-check", [&](Transaction& transaction) {
         std::string people = transaction.RunSqlStatementReturningOneValue(
             "SELECT COUNT(*) FROM people");
         EXPECT_FALSE(people.empty());
-        std::string classes = transaction.RunSqlStatementReturningOneValue(
-            "SELECT COUNT(*) FROM classes");
-        EXPECT_FALSE(classes.empty());
     });
 }
 
@@ -77,13 +75,10 @@ TEST(GlobalDatabaseTestSupportTest, GetDatabaseInfoReturnsInjectedComposedSchema
         GlobalDatabaseTestSupport::GetInstance().GetDatabaseInfo();
     StringArray tables = info.GetAllTables();
     bool hasPeople = false;
-    bool hasClasses = false;
     for (const std::string& table : tables) {
         if (table == "people") hasPeople = true;
-        if (table == "classes") hasClasses = true;
     }
-    EXPECT_TRUE(hasPeople);   // framework table
-    EXPECT_TRUE(hasClasses);  // app table
+    EXPECT_TRUE(hasPeople);   // framework table, present in every honuware schema
 }
 
 }  // namespace

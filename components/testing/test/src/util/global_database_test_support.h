@@ -21,7 +21,8 @@ public:
     GlobalDatabaseTestSupport& operator=(const GlobalDatabaseTestSupport&) = delete;
     ~GlobalDatabaseTestSupport();
 
-    // Initialize the primary test database (kTestDatabaseName) with the given
+    // Initialize the primary test database (named by the injected DatabaseInfo,
+    // e.g. "test_knottyyoga" or "honuware_test") with the given
     // composed schema. The caller (the app's test main) passes
     // MakeDatabaseInfo(); the harness never calls it directly. Uses the
     // create-once contract: all DDL is committed up front so per-test CreateTable

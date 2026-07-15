@@ -96,6 +96,28 @@ add_subdirectory(components/square)
 add_subdirectory(components/platform)
 add_subdirectory(components/testing)
 
+# Two inter-component link edges lived APP-SIDE in knottyyoga (in src/CMakeLists.txt
+# and test/CMakeLists.txt), so they were never in the shared component CMakeLists
+# and did not travel with components/. Declare them here, where this repo's
+# top-level owns the composition — mirroring where the app declared them:
+#   platform -> services -> data -> foundation  (the core downward chain; the
+#     component files only carried platform's libsodium edge, not this chain)
+#   testing  -> platform + square + gtest/pqxx/crow  (the harness's own deps)
+# Without these, honuware_platform / honuware_testing inherit no PUBLIC include
+# dirs and every "util/...", "sql_util/...", "crow.h", "gtest/gtest.h" include
+# fails to resolve.
+target_link_libraries(honuware_platform PUBLIC
+    honuware_services
+    honuware_data
+    honuware_foundation)
+
+target_link_libraries(honuware_testing PUBLIC
+    honuware_platform
+    honuware_square
+    ${GTEST_LIB}
+    ${PQXX_LIB}
+    ${CROW_LIB})
+
 # honuware_tests (the component test-case bag) uses the harness pervasively.
 target_link_libraries(honuware_tests PUBLIC honuware_testing)
 
