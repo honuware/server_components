@@ -40,6 +40,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
+    # Force bash for every `run` step. For CONTAINER jobs GitHub does not reliably
+    # auto-select bash and falls back to `sh` (dash), which rejects the scripts'
+    # `set -o pipefail` with "Illegal option -o pipefail". The gcc:14.2.0 image is
+    # Debian-based and ships /bin/bash, so pinning bash is safe and keeps pipefail
+    # meaningful (the runner|tee pipe in "Run component tests" must fail the job).
+    defaults:
+      run:
+        shell: bash
+
     # Same image as the app's Dockerfile builder stage, so CI and the deploy
     # build agree on compiler, libstdc++ and glibc.
     container:
