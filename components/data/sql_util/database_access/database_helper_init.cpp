@@ -54,8 +54,28 @@ std::string DatabaseHelperInit::GetConnectionString() const {
         "user=" + user +
         " host=" + host +
         " password=" + password +
-        " port=" + port +
-        " dbname=" + dbname;
+        " port=" + port;
+    // An empty database name must OMIT the key entirely rather than emit a bare
+    // "dbname=". libpq's conninfo parser skips whitespace after "keyword=" and
+    // takes the NEXT token as the value, so
+    //     "... port=5432 dbname= sslmode=prefer"
+    // parses dbname as the literal string "sslmode=prefer" and the connection
+    // dies with: FATAL: database "sslmode=prefer" does not exist.
+    //
+    // The no-database bootstrap helper (MakeNoDatabaseHelper, which issues
+    // CREATE DATABASE and so cannot name the database it is creating) depends on
+    // the omission: with no dbname key, libpq defaults the database to the USER
+    // NAME. Appending nothing here is what that code has always intended -- see
+    // DatabaseHelperNoDatabase, whose comment says the string "omits dbname
+    // entirely".
+    //
+    // This only bit when sslMode was non-empty, i.e. every RELEASE build
+    // (sslMode defaults to "prefer" under NDEBUG). Debug builds default it to ""
+    // and so happened to end the string at "dbname=", which libpq reads as an
+    // empty value -- which is why Windows/Debug never saw it.
+    if (!dbname.empty()) {
+        conn += " dbname=" + dbname;
+    }
     if (!sslMode.empty()) {
         conn += " sslmode=" + sslMode;
     }

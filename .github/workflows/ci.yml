@@ -1,0 +1,229 @@
+# honuware server components — CI
+#
+# Proves, on every push, the thing the extraction is FOR: that these components
+# build and pass their full test suite with ZERO application code on the include
+# path. The standalone `honuware_test_runner` composes a framework-only schema
+# (MakeFrameworkTables) and drives the whole suite against a real PostgreSQL.
+#
+# Linux only, by design (plan Q10): Windows/MSVC is verified manually. The Windows
+# gotchas that manual verification has to catch live in CLAUDE.md.
+#
+# Toolchain choice: this deliberately mirrors the CONSUMING APP's release build
+# (knottyyoga's package/Dockerfile + package/build_linux_release.sh) rather than
+# inventing its own recipe — same gcc:14.2.0 image, same apt packages, same
+# `conan install` settings, same cmake flags. If a component builds here, it
+# builds in the app's deploy image.
+
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes an in-flight run obsolete.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Linux (gcc 14.2) build + component tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    # Same image as the app's Dockerfile builder stage, so CI and the deploy
+    # build agree on compiler, libstdc++ and glibc.
+    container:
+      image: gcc:14.2.0
+
+    services:
+      # The suite needs a real PostgreSQL: honuware_test_runner DROPs + CREATEs
+      # its own `honuware_test` database at startup and executes the framework DDL
+      # (incl. CREATE EXTENSION citext, which needs the contrib modules and a
+      # superuser — POSTGRES_USER is a superuser in this image).
+      #
+      # 13.1 matches the dev container (database_server/docker-compose.yml) and
+      # production. POSTGRES_DB is intentionally NOT set: the image then defaults
+      # it to POSTGRES_USER, creating a database named `docker` — which is what
+      # the "no database" bootstrap connection needs. That connection omits dbname
+      # entirely, and libpq defaults an empty dbname to the USER NAME. Setting
+      # POSTGRES_DB here would remove the `docker` database and break startup with
+      # a confusing 'database "docker" does not exist'.
+      postgres:
+        image: postgres:13.1
+        env:
+          POSTGRES_USER: docker
+          POSTGRES_PASSWORD: docker
+        options: >-
+          --health-cmd "pg_isready -U docker"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      # The job runs in a container, so the service is reachable by its label
+      # (`postgres`) on the compose network — no host port mapping needed.
+      #
+      # NOTE the KNOTTYYOGA_* prefix: these are the names the FRAMEWORK code
+      # actually reads (components/data/sql_util/database_access/
+      # database_helper_init.cpp). The Phase 1.1 HONUWARE_* rename never covered
+      # the DB vars, so honuware's own CI has to set a brand-specific prefix. That
+      # is a real residual brand leak, tracked as a follow-up — this file must keep
+      # setting what the code reads until the rename lands.
+      KNOTTYYOGA_DB_HOST: postgres
+      KNOTTYYOGA_DB_PORT: "5432"
+      KNOTTYYOGA_DB_USER: docker
+      KNOTTYYOGA_DB_PASSWORD: docker
+      # Release implies NDEBUG, which defaults sslmode to "prefer". The postgres
+      # image serves plaintext, so "prefer" would silently fall back — pin it to
+      # disable so a TLS misconfiguration can never masquerade as a flake.
+      KNOTTYYOGA_DB_SSLMODE: disable
+
+      CONAN_HOME: /root/.conan2
+
+      # Floor for the "did the suite actually link?" assertion in the test step.
+      # ~1308 TEST()s exist across 114 component files today; this only trips on a
+      # catastrophic drop, not on normal test churn. See that step for why it exists.
+      MIN_EXPECTED_TESTS: "1000"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        # Mirrors the Dockerfile builder stage. libkrb5-dev is NOT optional: the
+        # static libpq pulled in transitively by libpqxx auto-detects GSSAPI from
+        # system headers, and the top-level CMakeLists appends -lgssapi_krb5 on
+        # non-Windows to resolve it. (We are root in the container: no sudo.)
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends \
+              cmake \
+              git \
+              python3-pip \
+              libkrb5-dev
+          cmake --version
+
+      - name: Install Conan 2.x
+        # 2.x is required: the 1.x index is missing recipes we depend on
+        # (e.g. crowcpp-crow/1.3.2).
+        run: |
+          set -euo pipefail
+          pip3 install --break-system-packages --quiet 'conan>=2.0,<3.0'
+          conan profile detect --force
+          conan --version
+
+      - name: Cache Conan packages
+        # MEASURED: ConanCenter publishes NO prebuilt binaries for gcc 14 — every
+        # one of the 21 dependencies (boost, openssl, abseil, libpq, ...) compiles
+        # from source. On a 32-core dev box that cold build is ~5 min; a 2–4 core
+        # runner is several times slower, so this cache is load-bearing rather than
+        # an optimisation. Keyed on the recipe — restore-keys lets an edited
+        # conanfile start from the previous cache instead of rebuilding everything.
+        uses: actions/cache@v4
+        with:
+          path: /root/.conan2
+          key: conan-gcc14.2.0-${{ hashFiles('conanfile.py') }}
+          restore-keys: |
+            conan-gcc14.2.0-
+
+      - name: Conan install
+        # Same settings as the app's build_linux_release.sh. --output-folder
+        # side-steps the recipe's Windows-oriented vs_layout and forces everything
+        # into our build tree. cppstd=17 governs the DEPENDENCY builds only; the
+        # components themselves compile as C++20 via CMAKE_CXX_STANDARD — the same
+        # combination the app ships with.
+        #
+        # Side effect worth knowing: conanfile.py's init() writes
+        # ConanLibImports.cmake next to the recipe (the REPO ROOT, not the output
+        # folder). The top-level CMakeLists include()s it from there.
+        run: |
+          set -euo pipefail
+          conan install . \
+              --output-folder=build \
+              --build=missing \
+              -s build_type=Release \
+              -s compiler.cppstd=17
+
+      - name: CMake configure
+        # Conan 2.28+ nests generators under conan/; older versions put the
+        # toolchain at the output-folder root. Probe the same candidates the app's
+        # release script does rather than assuming a layout.
+        run: |
+          set -euo pipefail
+          TOOLCHAIN=""
+          for candidate in \
+              build/conan_toolchain.cmake \
+              build/conan/conan_toolchain.cmake \
+              build/build/conan_toolchain.cmake; do
+              if [ -f "$candidate" ]; then
+                  TOOLCHAIN="$(pwd)/$candidate"
+                  break
+              fi
+          done
+          if [ -z "$TOOLCHAIN" ]; then
+              echo "ERROR: conan_toolchain.cmake not found under build/" >&2
+              find build -name 'conan_toolchain.cmake' >&2 || true
+              exit 1
+          fi
+          echo "Using toolchain: $TOOLCHAIN"
+          cmake -S . -B build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+              -DCMAKE_POLICY_DEFAULT_CMP0091=NEW
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          cmake --build build -j "$(nproc)"
+
+      - name: Run component tests
+        # Run from the build dir: the POST_BUILD step copies certs/cacert.pem to
+        # ${CMAKE_BINARY_DIR}/certs, and the real HTTP client looks it up at the
+        # CWD-relative "certs/cacert.pem". (The two fixture-reading tests resolve
+        # their data via __FILE__, so they are CWD-independent.)
+        #
+        # THE COUNT ASSERTION IS LOAD-BEARING — do not remove it as noise.
+        # honuware_tests is a STATIC library of self-registering gtest TEST()s, and
+        # test/main.cpp references no symbol in it. A static archive only yields the
+        # object files needed to resolve an undefined symbol, so a linker is fully
+        # entitled to drop every test object. The failure mode is silent and
+        # catastrophic: RUN_ALL_TESTS() finds 0 tests, returns 0, and CI reports a
+        # cheerful green tick having verified nothing. Asserting a floor converts
+        # that into a loud red. If this trips, the fix is to force the archive in
+        # whole — $<LINK_LIBRARY:WHOLE_ARCHIVE,honuware_tests> (CMake 3.24+) at the
+        # honuware_test_runner link — NOT to lower the floor.
+        run: |
+          set -euo pipefail
+          cd build
+          ./honuware_test_runner 2>&1 | tee test-output.txt
+
+          count=$(sed -n 's/^\[==========\] Running \([0-9][0-9]*\) test.*/\1/p' \
+                  test-output.txt | head -n 1)
+
+          if [ -z "$count" ]; then
+              echo "ERROR: could not parse a test count from the runner output." >&2
+              echo "       Expected a gtest '[==========] Running N tests ...' line." >&2
+              exit 1
+          fi
+
+          echo "Component tests executed: $count (floor: $MIN_EXPECTED_TESTS)"
+
+          if [ "$count" -lt "$MIN_EXPECTED_TESTS" ]; then
+              echo "ERROR: only $count tests ran, expected >= $MIN_EXPECTED_TESTS." >&2
+              echo "       The suite did not fully link — see this step's comment:" >&2
+              echo "       honuware_tests is a static lib and its TEST() objects were" >&2
+              echo "       likely dropped. Link it with WHOLE_ARCHIVE rather than" >&2
+              echo "       lowering the floor." >&2
+              exit 1
+          fi
+
+      - name: Upload test output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: component-test-output
+          path: build/test-output.txt
+          if-no-files-found: ignore

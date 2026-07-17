@@ -37,7 +37,19 @@ if(PROJECT_IS_TOP_LEVEL)
     set(CMAKE_CXX_STANDARD 20)
 
     # Changes how Boost is found and used. Use the old way for now (matches the app).
-    cmake_policy(SET CMP0167 OLD)
+    #
+    # The if(POLICY) guard is REQUIRED, not defensive noise: CMP0167 only exists
+    # in CMake 3.30+, and cmake_policy(SET) on an unknown policy is a hard ERROR
+    # ("Policy CMP0167 is not known to this version of CMake"), not a warning. We
+    # declare cmake_minimum_required(VERSION 3.24) and the README promises 3.24+,
+    # so an unguarded SET would break configure on every CMake in [3.24, 3.30) —
+    # including the 3.25 that Debian bookworm (the gcc:14.2.0 build image, and the
+    # Linux CI job) installs from apt. On <3.30 the policy simply doesn't exist and
+    # FindBoost is the only lookup path anyway, so skipping the SET there yields
+    # exactly the behaviour the SET asks for on 3.30+.
+    if(POLICY CMP0167)
+        cmake_policy(SET CMP0167 OLD)
+    endif()
 
     if(!WIN32)
         set(CMAKE_C_COMPILER "/usr/bin/gcc")

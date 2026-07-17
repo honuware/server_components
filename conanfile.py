@@ -36,7 +36,17 @@ libraries = [
     Library("libsodium", "1.0.20", CMakeInfo("libsodium", "libsodium::libsodium")),
     Library("libtiff", "4.6.0", CMakeInfo("TIFF", "TIFF::TIFF")),
     Library("mailio", "0.25.3", CMakeInfo("mailio", "mailio::mailio")),
-    Library("openssl", "3.5.2", CMakeInfo("openssl", "openssl::openssl")),
+    # NOTE the capitalisation: Conan's openssl recipe sets cmake_file_name="OpenSSL",
+    # so CMakeDeps emits OpenSSLConfig.cmake. find_package() filename lookup is
+    # case-SENSITIVE on Linux, so find_package(openssl) fails there with
+    # "Could not find a package configuration file provided by openssl" -- while
+    # working fine on Windows, whose filesystem is case-insensitive and matches
+    # OpenSSLConfig.cmake anyway. Every other entry below already matches its
+    # generated filename exactly; this was the only mismatch. The linked target stays
+    # lowercase openssl::openssl (that IS what OpenSSLConfig.cmake declares, alongside
+    # OpenSSL::SSL and OpenSSL::Crypto), and ${OPENSSL_LIB} is unchanged because the
+    # generator upper-cases the package name either way.
+    Library("openssl", "3.5.2", CMakeInfo("OpenSSL", "openssl::openssl")),
     Library("zlib", "1.3.1", CMakeInfo("ZLIB", "ZLIB::ZLIB")),
 ]
 

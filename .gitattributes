@@ -1,0 +1,28 @@
+# Line-ending policy. This repo is developed on Windows and built/tested on Linux,
+# so line endings are not cosmetic here.
+#
+# Without this file, a clone with core.autocrlf=true (the Windows default) rewrites
+# checked-out files to CRLF. A shell script with CRLF fails in Linux with a
+# baffling error -- the shebang becomes "#!/usr/bin/env bash\r", so the kernel
+# looks for an interpreter literally named "bash\r" and reports
+# "bad interpreter: No such file or directory", or lines fail with "$'\r': command
+# not found". Pinning eol per type makes the working tree correct on both.
+
+# Default: let Git normalise text in the repository, and decide eol per type below.
+* text=auto
+
+# Must be LF -- these run inside Linux containers / CI.
+*.sh        text eol=lf
+Dockerfile  text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+
+# Must be CRLF -- cmd.exe is the only consumer and it is happiest with CRLF.
+*.cmd       text eol=crlf
+*.bat       text eol=crlf
+
+# Binary: never touch.
+*.pem       -text
+*.png       binary
+*.jpg       binary
+*.tif       binary

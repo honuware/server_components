@@ -46,6 +46,9 @@ here ever needs an application header, a boundary has been broken.
 Prerequisites: a C++20 compiler (MSVC 2019+ on Windows, GCC on Linux),
 CMake 3.24+, Conan 2.x, and a reachable PostgreSQL instance for the tests.
 
+On Windows, open the folder in Visual Studio (`CMakeSettings.json` wires up the
+Conan toolchain) or:
+
 ```bash
 mkdir build && cd build
 conan install ..
@@ -53,14 +56,45 @@ cmake ..
 cmake --build .
 ```
 
+On Linux, pass `--output-folder` and the generated toolchain explicitly — the
+recipe's `layout()` is `vs_layout`, which is Windows-oriented:
+
+```bash
+conan install . --output-folder=build --build=missing \
+    -s build_type=Release -s compiler.cppstd=17
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_TOOLCHAIN_FILE="$PWD/build/conan/conan_toolchain.cmake"
+cmake --build build -j"$(nproc)"
+```
+
+You also need `libkrb5-dev` on Linux: the static libpq that libpqxx pulls in
+auto-detects GSSAPI, so the build links `-lgssapi_krb5`. Conan 2.28+ puts the
+toolchain under `build/conan/`; older versions put it at `build/`.
+
+**`.github/workflows/ci.yml` is the authoritative, always-tested version of these
+steps** — it runs exactly this recipe on every push. Read it if anything here
+drifts.
+
 This produces the seven component libraries and the `honuware_test_runner`
 executable. The runner composes a **framework-only** schema (via
 `MakeFrameworkTables`) into a database named `honuware_test` and runs the full
 component test suite against it:
 
 ```bash
-./honuware_test_runner
+cd build && ./honuware_test_runner
 ```
+
+Run it from the build directory: the real HTTP client resolves its CA bundle at
+the working-directory-relative `certs/cacert.pem`, which the build copies there.
+
+The runner DROPs and CREATEs `honuware_test` itself on every run, so it needs a
+PostgreSQL where the login role may create databases. Connection settings come
+from `KNOTTYYOGA_DB_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_SSLMODE`
+(defaulting to host `postgresql`, user/password `docker`/`docker` on Linux) — see
+`components/data/sql_util/database_access/database_helper_init.h`. The bootstrap
+connection that issues `CREATE DATABASE` omits the database name, and libpq
+defaults an empty database name to the *user name*, so a database matching the
+login user (`docker`) must also exist.
 
 The test database name (`honuware_test`) is deliberately distinct so the suite
 can share a Postgres instance with an application's own test database without

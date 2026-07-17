@@ -222,6 +222,48 @@ TEST(DatabaseHelperInitTest, ConnectionStringIncludesAllRequiredKeys) {
     EXPECT_NE(conn.find("dbname=appdb"), std::string::npos);
 }
 
+TEST(DatabaseHelperInitTest, ConnectionStringOmitsDbNameWhenEmpty) {
+    // MakeNoDatabaseHelper clears the name so libpq defaults the database to the
+    // user name -- which only works if the key is omitted, not emitted empty.
+    EnvScope scope;
+    DatabaseHelperInit init(kTestDefaultDbName);
+    init.dbname.clear();
+
+    std::string conn = init.GetConnectionString();
+
+    EXPECT_EQ(conn.find("dbname="), std::string::npos);
+    // The rest of the string must survive the omission.
+    EXPECT_NE(conn.find("user="), std::string::npos);
+    EXPECT_NE(conn.find("port="), std::string::npos);
+}
+
+TEST(DatabaseHelperInitTest, EmptyDbNameDoesNotSwallowTheNextParameter) {
+    // Regression. GetConnectionString used to append " dbname=" unconditionally.
+    // libpq's conninfo parser skips whitespace after "keyword=" and takes the
+    // NEXT token as the value, so
+    //     "... port=5432 dbname= sslmode=prefer"
+    // parsed dbname as the literal "sslmode=prefer", and every no-database
+    // bootstrap connection died with:
+    //     FATAL: database "sslmode=prefer" does not exist
+    // That broke CREATE DATABASE in any build with a non-empty sslMode -- i.e.
+    // every RELEASE build, since sslMode defaults to "prefer" under NDEBUG.
+    // Debug builds default it to "" and ended the string at "dbname=", which
+    // libpq reads as an empty value, which is why Windows/Debug never saw it.
+    EnvScope scope;
+    SetEnv("KNOTTYYOGA_DB_SSLMODE", "prefer");
+
+    DatabaseHelperInit init(kTestDefaultDbName);
+    init.dbname.clear();
+
+    std::string conn = init.GetConnectionString();
+
+    EXPECT_EQ(conn.find("dbname="), std::string::npos);
+    // sslmode must still be its own parameter, not eaten as the database name.
+    EXPECT_NE(conn.find("sslmode=prefer"), std::string::npos);
+    // The exact shape libpq mis-parsed.
+    EXPECT_EQ(conn.find("dbname= "), std::string::npos);
+}
+
 TEST(DatabaseHelperInitTest, ConnectionStringIncludesSslModeWhenSet) {
     EnvScope scope;
     SetEnv("KNOTTYYOGA_DB_SSLMODE", "require");
