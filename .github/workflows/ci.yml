@@ -29,7 +29,14 @@ concurrency:
 
 jobs:
   linux:
-    name: Linux (gcc 14.2) build + component tests
+    # KEEP THIS NAME STABLE. It is the identity a branch-protection "required
+    # status check" matches on. If you enable protection on main (Settings ->
+    # Branches -> Require status checks to pass) and later rename this job, the
+    # required check silently never reports and every PR blocks forever waiting
+    # for a check that no longer exists. So the toolchain version deliberately
+    # lives in `container:` below and NOT in this name — bumping gcc must not
+    # rename the check.
+    name: Linux build + component tests
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
