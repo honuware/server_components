@@ -1,8 +1,11 @@
 #include "sql_util/database_access/database_helper_init.h"
 
 #include <cstdlib>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -48,12 +51,49 @@ void ClearAll() {
     }
 }
 
-// RAII guard: clears the relevant env vars on entry and again on destruction.
-// Tests can call SetEnv inside the scope without worrying about leaking.
+// Snapshot the current value of an env var (nullopt when unset). Copies the
+// bytes into an owning string so the snapshot survives later setenv/putenv
+// calls that may invalidate the getenv() pointer.
+std::optional<std::string> GetEnv(const char* name) {
+    const char* value = std::getenv(name);
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+    return std::string(value);
+}
+
+// RAII guard: snapshots the relevant env vars, clears them so each test starts
+// from a known-empty environment, and RESTORES the snapshot on destruction.
+//
+// Restoring (not clearing) on exit is load-bearing. The CI job exports
+// KNOTTYYOGA_DB_* into the ambient process environment, and OTHER suites in the
+// same test binary open fresh database connections that read those vars (e.g.
+// GlobalDatabaseTestSupport's EnsureNamedDatabase path via MakeNoDatabaseHelper).
+// An unconditional ClearAll() on exit unset them for the rest of the process,
+// so those later connections fell back to the default host ("postgresql") and
+// failed name resolution wherever the DB host isn't literally "postgresql" —
+// i.e. CI, where the service is "postgres". It was invisible locally because
+// the dev container's host IS "postgresql".
 class EnvScope {
 public:
-    EnvScope() { ClearAll(); }
-    ~EnvScope() { ClearAll(); }
+    EnvScope() {
+        for (const char* name : kAllEnvVars) {
+            saved_.emplace_back(name, GetEnv(name));
+        }
+        ClearAll();
+    }
+    ~EnvScope() {
+        for (const auto& entry : saved_) {
+            if (entry.second) {
+                SetEnv(entry.first, entry.second->c_str());
+            } else {
+                UnsetEnv(entry.first);
+            }
+        }
+    }
+
+private:
+    std::vector<std::pair<const char*, std::optional<std::string>>> saved_;
 };
 
 // --- Defaults (no env vars set) ---
@@ -320,6 +360,52 @@ TEST(DatabaseHelperInitTest, ConnectionStringDefaultSslModeMatchesBuildMode) {
 #else
     EXPECT_EQ(conn.find("sslmode="), std::string::npos);
 #endif
+}
+
+// --- EnvScope hygiene ---
+
+TEST(DatabaseHelperInitTest, EnvScopeRestoresAmbientValueOnExit) {
+    // Regression: EnvScope used to ClearAll() on exit, which unset the ambient
+    // KNOTTYYOGA_DB_* the CI job exports, sending later suites' fresh DB
+    // connections to the default host ("postgresql") — a DNS failure in CI. The
+    // guard must snapshot on entry and RESTORE on exit, not clear.
+    const std::optional<std::string> original = GetEnv("KNOTTYYOGA_DB_HOST");
+
+    SetEnv("KNOTTYYOGA_DB_HOST", "ambient-host");
+    {
+        EnvScope scope;
+        // Inside the scope the var is cleared so the test starts hermetic.
+        EXPECT_EQ(std::getenv("KNOTTYYOGA_DB_HOST"), nullptr);
+        SetEnv("KNOTTYYOGA_DB_HOST", "inner-host");
+    }
+    // On exit the ambient value is restored, not cleared away.
+    const char* host = std::getenv("KNOTTYYOGA_DB_HOST");
+    ASSERT_NE(host, nullptr);
+    EXPECT_STREQ(host, "ambient-host");
+
+    // Restore the true ambient value so this test is itself hermetic.
+    if (original) {
+        SetEnv("KNOTTYYOGA_DB_HOST", original->c_str());
+    } else {
+        UnsetEnv("KNOTTYYOGA_DB_HOST");
+    }
+}
+
+TEST(DatabaseHelperInitTest, EnvScopeRestoresUnsetVarOnExit) {
+    // The complementary case: a var that was UNSET before the scope must be
+    // unset again afterward (the snapshot restores "absent", not empty-string).
+    const std::optional<std::string> original = GetEnv("KNOTTYYOGA_DB_PORT");
+    UnsetEnv("KNOTTYYOGA_DB_PORT");
+    {
+        EnvScope scope;
+        SetEnv("KNOTTYYOGA_DB_PORT", "9999");
+    }
+    EXPECT_EQ(std::getenv("KNOTTYYOGA_DB_PORT"), nullptr);
+
+    // Restore the true ambient value so this test is itself hermetic.
+    if (original) {
+        SetEnv("KNOTTYYOGA_DB_PORT", original->c_str());
+    }
 }
 
 }  // namespace

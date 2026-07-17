@@ -47,8 +47,13 @@ namespace DbMeta {
         TEST(DatabaseMetadataTest, ListDatabasesBasic)
         {
             TestDatabaseUtil testDatabaseUtil;
+            // Assert the ACTIVE test database (injected via GlobalDatabaseTestSupport)
+            // is listed, not a hardcoded brand name: honuware's suite runs against
+            // "honuware_test", knottyyoga's against "test_knottyyoga".
+            const std::string activeDatabase(
+                testDatabaseUtil.GetDatabaseInfo().GetDatabaseName());
             testDatabaseUtil.RunInTransaction("ListDatabasesBasic", [&](Transaction& transaction) {
-                EXPECT_THAT(ListDatabases(transaction), Contains("test_knottyyoga"));
+                EXPECT_THAT(ListDatabases(transaction), Contains(activeDatabase));
                 });
         }
 
