@@ -95,7 +95,7 @@ Windows app-test run and a Linux component-test run coexist happily.
 same network as your database, or your database's service is not named
 `postgresql`. Check `docker network inspect <network>` and pass the right network
 to `load_container.cmd`; if the alias differs, add
-`-e KNOTTYYOGA_DB_HOST=<name>` to the `docker run` line.
+`-e HONUWARE_DB_HOST=<name>` to the `docker run` line.
 
 **`database "docker" does not exist`** — see the libpq trap above.
 
@@ -114,8 +114,9 @@ the script got CRLF line endings from a checkout with `core.autocrlf=true`.
 **Want to start Conan from scratch** — `docker volume rm honuware-conan2`, and
 accept the 30–60 minute rebuild.
 
-**The environment variables are `KNOTTYYOGA_DB_*`, not `HONUWARE_DB_*`** — yes.
-That is what the framework code currently reads
-(`components/data/sql_util/database_access/database_helper_init.h`); the Phase 1.1
-`HONUWARE_*` rename never reached the DB variables. Renaming them, with a fallback,
-is a logged follow-up.
+**Which DB environment variables?** The canonical names are `HONUWARE_DB_*`
+(`HOST` / `PORT` / `USER` / `PASSWORD` / `NAME` / `SSLMODE` / `SSLROOTCERT`), read
+by `components/data/sql_util/database_access/database_helper_init.h`. The legacy
+`KNOTTYYOGA_DB_*` names are still accepted as a fallback (via
+`Util::GetEnvWithFallback`), so older deploy configs keep working during the
+transition.

@@ -2,7 +2,11 @@
 
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -34,23 +38,33 @@ void UnsetEnv(const char* name) {
 #endif
 }
 
-// RAII guard that restores KNOTTYYOGA_VERSION to its prior value on scope exit.
-// Tests can mutate the env var freely without affecting siblings.
+// The version env var the health endpoint reads, plus its legacy fallback.
+constexpr const char* kVersionEnvVars[] = {
+    "HONUWARE_VERSION",
+    "KNOTTYYOGA_VERSION",
+};
+
+// RAII guard that clears BOTH the canonical HONUWARE_VERSION and the legacy
+// KNOTTYYOGA_VERSION on entry (so each test starts hermetic) and restores their
+// prior values on exit. Tests can mutate them freely without affecting siblings.
 class VersionEnvScope {
 public:
     VersionEnvScope() {
-        const char* val = std::getenv("KNOTTYYOGA_VERSION");
-        had_ = (val != nullptr);
-        if (had_) prior_.assign(val);
-        UnsetEnv("KNOTTYYOGA_VERSION");
+        for (const char* name : kVersionEnvVars) {
+            const char* val = std::getenv(name);
+            saved_.emplace_back(
+                name, val ? std::optional<std::string>(val) : std::nullopt);
+            UnsetEnv(name);
+        }
     }
     ~VersionEnvScope() {
-        if (had_) SetEnv("KNOTTYYOGA_VERSION", prior_.c_str());
-        else UnsetEnv("KNOTTYYOGA_VERSION");
+        for (const auto& entry : saved_) {
+            if (entry.second) SetEnv(entry.first, entry.second->c_str());
+            else UnsetEnv(entry.first);
+        }
     }
 private:
-    bool had_ = false;
-    std::string prior_;
+    std::vector<std::pair<const char*, std::optional<std::string>>> saved_;
 };
 
 // Test-only TransactionProvider that always throws. Used to drive the
@@ -87,7 +101,7 @@ TEST(HealthTest, BuildHealthResponseEmptyVersion) {
 
 TEST(HealthTest, GetBuildVersionFromEnv) {
     VersionEnvScope scope;
-    SetEnv("KNOTTYYOGA_VERSION", "v2026.04.27-abcdef");
+    SetEnv("HONUWARE_VERSION", "v2026.04.27-abcdef");
     EXPECT_EQ(GetBuildVersion(), "v2026.04.27-abcdef");
 }
 
@@ -98,8 +112,23 @@ TEST(HealthTest, GetBuildVersionUnsetReturnsUnknown) {
 
 TEST(HealthTest, GetBuildVersionEmptyReturnsUnknown) {
     VersionEnvScope scope;
-    SetEnv("KNOTTYYOGA_VERSION", "");
+    SetEnv("HONUWARE_VERSION", "");
     EXPECT_EQ(GetBuildVersion(), "unknown");
+}
+
+TEST(HealthTest, GetBuildVersionLegacyFallback) {
+    // Old deploys that set only the legacy KNOTTYYOGA_VERSION keep working.
+    VersionEnvScope scope;
+    SetEnv("KNOTTYYOGA_VERSION", "v2026.04.27-legacy");
+    EXPECT_EQ(GetBuildVersion(), "v2026.04.27-legacy");
+}
+
+TEST(HealthTest, GetBuildVersionCanonicalWinsOverLegacy) {
+    // When both are set, the canonical HONUWARE_VERSION wins.
+    VersionEnvScope scope;
+    SetEnv("HONUWARE_VERSION", "v-canonical");
+    SetEnv("KNOTTYYOGA_VERSION", "v-legacy");
+    EXPECT_EQ(GetBuildVersion(), "v-canonical");
 }
 
 // --- ProbeDatabase ---
@@ -192,7 +221,7 @@ TEST(HealthTest, HttpEndpointVersionFromEnv) {
     Auth::ServerConfig::InitializeTestMode();
 
     VersionEnvScope scope;
-    SetEnv("KNOTTYYOGA_VERSION", "v2026.04.27-test");
+    SetEnv("HONUWARE_VERSION", "v2026.04.27-test");
 
     TestDatabaseUtil testDb;
     testDb.RunInTransaction("HealthHttpVersion", [&](Transaction& transaction) {

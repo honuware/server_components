@@ -16,9 +16,18 @@ namespace {
 // Decoupled from the app brand on purpose — this is framework code.
 constexpr std::string_view kTestDefaultDbName = "test_default_db";
 
-// All env vars that DatabaseHelperInit reads. Tests scrub these on entry and
-// exit so a leaked value from one test cannot influence the next.
+// All env vars that DatabaseHelperInit reads — the canonical HONUWARE_DB_* set
+// AND the legacy KNOTTYYOGA_DB_* fallbacks. Tests scrub BOTH families on entry
+// and exit so a leaked value from one test (or an ambient value from either
+// family) cannot influence the next.
 constexpr const char* kAllEnvVars[] = {
+    "HONUWARE_DB_HOST",
+    "HONUWARE_DB_PORT",
+    "HONUWARE_DB_USER",
+    "HONUWARE_DB_PASSWORD",
+    "HONUWARE_DB_NAME",
+    "HONUWARE_DB_SSLMODE",
+    "HONUWARE_DB_SSLROOTCERT",
     "KNOTTYYOGA_DB_HOST",
     "KNOTTYYOGA_DB_PORT",
     "KNOTTYYOGA_DB_USER",
@@ -66,14 +75,16 @@ std::optional<std::string> GetEnv(const char* name) {
 // from a known-empty environment, and RESTORES the snapshot on destruction.
 //
 // Restoring (not clearing) on exit is load-bearing. The CI job exports
-// KNOTTYYOGA_DB_* into the ambient process environment, and OTHER suites in the
-// same test binary open fresh database connections that read those vars (e.g.
-// GlobalDatabaseTestSupport's EnsureNamedDatabase path via MakeNoDatabaseHelper).
-// An unconditional ClearAll() on exit unset them for the rest of the process,
-// so those later connections fell back to the default host ("postgresql") and
-// failed name resolution wherever the DB host isn't literally "postgresql" —
-// i.e. CI, where the service is "postgres". It was invisible locally because
-// the dev container's host IS "postgresql".
+// HONUWARE_DB_* (and older configs the legacy KNOTTYYOGA_DB_*) into the ambient
+// process environment, and OTHER suites in the same test binary open fresh
+// database connections that read those vars (e.g. GlobalDatabaseTestSupport's
+// EnsureNamedDatabase path via MakeNoDatabaseHelper). An unconditional
+// ClearAll() on exit unset them for the rest of the process, so those later
+// connections fell back to the default host ("postgresql") and failed name
+// resolution wherever the DB host isn't literally "postgresql" — i.e. CI,
+// where the service is "postgres". It was invisible locally because the dev
+// container's host IS "postgresql". Scrubbing/restoring BOTH families keeps a
+// leaked value in either name from influencing a hermetic test.
 class EnvScope {
 public:
     EnvScope() {
@@ -128,8 +139,8 @@ TEST(DatabaseHelperInitTest, DefaultsWhenEnvUnset) {
 TEST(DatabaseHelperInitTest, EmptyEnvFallsBackToDefault) {
     EnvScope scope;
     // An explicitly-empty value should be treated as "unset".
-    SetEnv("KNOTTYYOGA_DB_HOST", "");
-    SetEnv("KNOTTYYOGA_DB_USER", "");
+    SetEnv("HONUWARE_DB_HOST", "");
+    SetEnv("HONUWARE_DB_USER", "");
 
     DatabaseHelperInit init(kTestDefaultDbName);
 
@@ -141,11 +152,11 @@ TEST(DatabaseHelperInitTest, EmptyEnvFallsBackToDefault) {
     EXPECT_EQ(init.user, "docker");
 }
 
-// --- Per-field env overrides ---
+// --- Per-field env overrides (canonical HONUWARE_DB_* names) ---
 
 TEST(DatabaseHelperInitTest, HostFromEnv) {
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_HOST", "knottyyoga.xxxxxx.us-west-2.rds.amazonaws.com");
+    SetEnv("HONUWARE_DB_HOST", "knottyyoga.xxxxxx.us-west-2.rds.amazonaws.com");
 
     DatabaseHelperInit init(kTestDefaultDbName);
 
@@ -154,7 +165,7 @@ TEST(DatabaseHelperInitTest, HostFromEnv) {
 
 TEST(DatabaseHelperInitTest, PortFromEnv) {
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_PORT", "6543");
+    SetEnv("HONUWARE_DB_PORT", "6543");
 
     DatabaseHelperInit init(kTestDefaultDbName);
 
@@ -163,12 +174,12 @@ TEST(DatabaseHelperInitTest, PortFromEnv) {
 
 TEST(DatabaseHelperInitTest, UserAndPasswordFromEnv) {
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_USER", "knottyyoga_app");
-    SetEnv("KNOTTYYOGA_DB_PASSWORD", "s3cret");
+    SetEnv("HONUWARE_DB_USER", "app_user");
+    SetEnv("HONUWARE_DB_PASSWORD", "s3cret");
 
     DatabaseHelperInit init(kTestDefaultDbName);
 
-    EXPECT_EQ(init.user, "knottyyoga_app");
+    EXPECT_EQ(init.user, "app_user");
     EXPECT_EQ(init.password, "s3cret");
 }
 
@@ -176,11 +187,11 @@ TEST(DatabaseHelperInitTest, DbNameFromEnv) {
     // The env var overrides the constructor default so operators can point a
     // deploy at an alternate database without a rebuild.
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_NAME", "knottyyoga_staging");
+    SetEnv("HONUWARE_DB_NAME", "app_staging");
 
     DatabaseHelperInit init(kTestDefaultDbName);
 
-    EXPECT_EQ(init.dbname, "knottyyoga_staging");
+    EXPECT_EQ(init.dbname, "app_staging");
 }
 
 TEST(DatabaseHelperInitTest, DbNameUsesConstructorDefaultWhenEnvUnset) {
@@ -205,7 +216,7 @@ TEST(DatabaseHelperInitTest, DbNameEmptyDefaultWithoutEnvIsEmpty) {
 
 TEST(DatabaseHelperInitTest, SslModeFromEnv) {
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_SSLMODE", "verify-full");
+    SetEnv("HONUWARE_DB_SSLMODE", "verify-full");
 
     DatabaseHelperInit init(kTestDefaultDbName);
 
@@ -214,22 +225,22 @@ TEST(DatabaseHelperInitTest, SslModeFromEnv) {
 
 TEST(DatabaseHelperInitTest, SslRootCertFromEnv) {
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_SSLROOTCERT", "/etc/knottyyoga/rds-ca.pem");
+    SetEnv("HONUWARE_DB_SSLROOTCERT", "/etc/honuware/rds-ca.pem");
 
     DatabaseHelperInit init(kTestDefaultDbName);
 
-    EXPECT_EQ(init.sslRootCert, "/etc/knottyyoga/rds-ca.pem");
+    EXPECT_EQ(init.sslRootCert, "/etc/honuware/rds-ca.pem");
 }
 
 TEST(DatabaseHelperInitTest, AllFieldsFromEnv) {
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_HOST", "host.example.com");
-    SetEnv("KNOTTYYOGA_DB_PORT", "5433");
-    SetEnv("KNOTTYYOGA_DB_USER", "appuser");
-    SetEnv("KNOTTYYOGA_DB_PASSWORD", "pw");
-    SetEnv("KNOTTYYOGA_DB_NAME", "appdb");
-    SetEnv("KNOTTYYOGA_DB_SSLMODE", "require");
-    SetEnv("KNOTTYYOGA_DB_SSLROOTCERT", "/tmp/ca.pem");
+    SetEnv("HONUWARE_DB_HOST", "host.example.com");
+    SetEnv("HONUWARE_DB_PORT", "5433");
+    SetEnv("HONUWARE_DB_USER", "appuser");
+    SetEnv("HONUWARE_DB_PASSWORD", "pw");
+    SetEnv("HONUWARE_DB_NAME", "appdb");
+    SetEnv("HONUWARE_DB_SSLMODE", "require");
+    SetEnv("HONUWARE_DB_SSLROOTCERT", "/tmp/ca.pem");
 
     DatabaseHelperInit init(kTestDefaultDbName);
 
@@ -242,15 +253,53 @@ TEST(DatabaseHelperInitTest, AllFieldsFromEnv) {
     EXPECT_EQ(init.sslRootCert, "/tmp/ca.pem");
 }
 
+// --- Legacy KNOTTYYOGA_DB_* fallback + canonical precedence ---
+
+TEST(DatabaseHelperInitTest, LegacyNameHonoredWhenCanonicalUnset) {
+    // Old deploy environments that still set only KNOTTYYOGA_DB_* keep working
+    // during the transition (Util::GetEnvWithFallback falls back to the legacy
+    // name when the canonical HONUWARE_DB_* one is unset).
+    EnvScope scope;
+    SetEnv("KNOTTYYOGA_DB_HOST", "legacy-host.example.com");
+    SetEnv("KNOTTYYOGA_DB_PORT", "5544");
+    SetEnv("KNOTTYYOGA_DB_SSLMODE", "require");
+
+    DatabaseHelperInit init(kTestDefaultDbName);
+
+    EXPECT_EQ(init.host, "legacy-host.example.com");
+    EXPECT_EQ(init.port, "5544");
+    EXPECT_EQ(init.sslMode, "require");
+}
+
+TEST(DatabaseHelperInitTest, CanonicalWinsWhenBothSet) {
+    // When both names are set to real values, the canonical HONUWARE_DB_* value
+    // wins ("read the new name first"). Covers a field and sslmode so the
+    // precedence is proven through the same DbEnvOr path every field uses.
+    // (The empty-string canonical edge is deliberately NOT tested: it isn't
+    // constructible the same way across platforms — POSIX setenv keeps a
+    // present-but-empty var, Windows _putenv_s removes it — so the code does not
+    // rely on it. See DbEnvOr's comment.)
+    EnvScope scope;
+    SetEnv("HONUWARE_DB_HOST", "canonical-host");
+    SetEnv("KNOTTYYOGA_DB_HOST", "legacy-host");
+    SetEnv("HONUWARE_DB_SSLMODE", "disable");
+    SetEnv("KNOTTYYOGA_DB_SSLMODE", "require");
+
+    DatabaseHelperInit init(kTestDefaultDbName);
+
+    EXPECT_EQ(init.host, "canonical-host");
+    EXPECT_EQ(init.sslMode, "disable");
+}
+
 // --- GetConnectionString ---
 
 TEST(DatabaseHelperInitTest, ConnectionStringIncludesAllRequiredKeys) {
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_HOST", "host.example.com");
-    SetEnv("KNOTTYYOGA_DB_PORT", "5433");
-    SetEnv("KNOTTYYOGA_DB_USER", "appuser");
-    SetEnv("KNOTTYYOGA_DB_PASSWORD", "pw");
-    SetEnv("KNOTTYYOGA_DB_NAME", "appdb");
+    SetEnv("HONUWARE_DB_HOST", "host.example.com");
+    SetEnv("HONUWARE_DB_PORT", "5433");
+    SetEnv("HONUWARE_DB_USER", "appuser");
+    SetEnv("HONUWARE_DB_PASSWORD", "pw");
+    SetEnv("HONUWARE_DB_NAME", "appdb");
 
     DatabaseHelperInit init(kTestDefaultDbName);
     std::string conn = init.GetConnectionString();
@@ -290,7 +339,7 @@ TEST(DatabaseHelperInitTest, EmptyDbNameDoesNotSwallowTheNextParameter) {
     // Debug builds default it to "" and ended the string at "dbname=", which
     // libpq reads as an empty value, which is why Windows/Debug never saw it.
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_SSLMODE", "prefer");
+    SetEnv("HONUWARE_DB_SSLMODE", "prefer");
 
     DatabaseHelperInit init(kTestDefaultDbName);
     init.dbname.clear();
@@ -306,7 +355,7 @@ TEST(DatabaseHelperInitTest, EmptyDbNameDoesNotSwallowTheNextParameter) {
 
 TEST(DatabaseHelperInitTest, ConnectionStringIncludesSslModeWhenSet) {
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_SSLMODE", "require");
+    SetEnv("HONUWARE_DB_SSLMODE", "require");
 
     DatabaseHelperInit init(kTestDefaultDbName);
     std::string conn = init.GetConnectionString();
@@ -325,14 +374,14 @@ TEST(DatabaseHelperInitTest, ConnectionStringOmitsSslModeWhenEmpty) {
 
 TEST(DatabaseHelperInitTest, ConnectionStringIncludesSslRootCertWhenSet) {
     EnvScope scope;
-    SetEnv("KNOTTYYOGA_DB_SSLMODE", "verify-full");
-    SetEnv("KNOTTYYOGA_DB_SSLROOTCERT", "/etc/knottyyoga/rds-ca.pem");
+    SetEnv("HONUWARE_DB_SSLMODE", "verify-full");
+    SetEnv("HONUWARE_DB_SSLROOTCERT", "/etc/honuware/rds-ca.pem");
 
     DatabaseHelperInit init(kTestDefaultDbName);
     std::string conn = init.GetConnectionString();
 
     EXPECT_NE(conn.find("sslmode=verify-full"), std::string::npos);
-    EXPECT_NE(conn.find("sslrootcert=/etc/knottyyoga/rds-ca.pem"),
+    EXPECT_NE(conn.find("sslrootcert=/etc/honuware/rds-ca.pem"),
         std::string::npos);
 }
 
@@ -366,33 +415,35 @@ TEST(DatabaseHelperInitTest, ConnectionStringDefaultSslModeMatchesBuildMode) {
 
 TEST(DatabaseHelperInitTest, EnvScopeRestoresAmbientValueOnExit) {
     // Regression: EnvScope used to ClearAll() on exit, which unset the ambient
-    // KNOTTYYOGA_DB_* the CI job exports, sending later suites' fresh DB
-    // connections to the default host ("postgresql") — a DNS failure in CI. The
-    // guard must snapshot on entry and RESTORE on exit, not clear.
-    const std::optional<std::string> original = GetEnv("KNOTTYYOGA_DB_HOST");
+    // DB env the CI job exports, sending later suites' fresh DB connections to
+    // the default host ("postgresql") — a DNS failure in CI. The guard must
+    // snapshot on entry and RESTORE on exit, not clear. Exercised on the
+    // canonical HONUWARE_DB_* name, which is what CI now exports.
+    const std::optional<std::string> original = GetEnv("HONUWARE_DB_HOST");
 
-    SetEnv("KNOTTYYOGA_DB_HOST", "ambient-host");
+    SetEnv("HONUWARE_DB_HOST", "ambient-host");
     {
         EnvScope scope;
         // Inside the scope the var is cleared so the test starts hermetic.
-        EXPECT_EQ(std::getenv("KNOTTYYOGA_DB_HOST"), nullptr);
-        SetEnv("KNOTTYYOGA_DB_HOST", "inner-host");
+        EXPECT_EQ(std::getenv("HONUWARE_DB_HOST"), nullptr);
+        SetEnv("HONUWARE_DB_HOST", "inner-host");
     }
     // On exit the ambient value is restored, not cleared away.
-    const char* host = std::getenv("KNOTTYYOGA_DB_HOST");
+    const char* host = std::getenv("HONUWARE_DB_HOST");
     ASSERT_NE(host, nullptr);
     EXPECT_STREQ(host, "ambient-host");
 
     // Restore the true ambient value so this test is itself hermetic.
     if (original) {
-        SetEnv("KNOTTYYOGA_DB_HOST", original->c_str());
+        SetEnv("HONUWARE_DB_HOST", original->c_str());
     } else {
-        UnsetEnv("KNOTTYYOGA_DB_HOST");
+        UnsetEnv("HONUWARE_DB_HOST");
     }
 }
 
-TEST(DatabaseHelperInitTest, EnvScopeRestoresUnsetVarOnExit) {
-    // The complementary case: a var that was UNSET before the scope must be
+TEST(DatabaseHelperInitTest, EnvScopeRestoresLegacyUnsetVarOnExit) {
+    // The complementary case, on a LEGACY name (proving the legacy family is
+    // also snapshotted/restored): a var that was UNSET before the scope must be
     // unset again afterward (the snapshot restores "absent", not empty-string).
     const std::optional<std::string> original = GetEnv("KNOTTYYOGA_DB_PORT");
     UnsetEnv("KNOTTYYOGA_DB_PORT");

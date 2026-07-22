@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include "web_app.h"
+#include "util/env.h"
 #include "util/error_response.h"
 
 namespace Endpoints {
@@ -36,7 +37,10 @@ public:
 }  // namespace
 
 std::string GetBuildVersion() {
-    const char* val = std::getenv("KNOTTYYOGA_VERSION");
+    // Canonical HONUWARE_VERSION, with the legacy KNOTTYYOGA_VERSION as a
+    // fallback (componentization Phase 1.1 rename convention).
+    const char* val =
+        Util::GetEnvWithFallback("HONUWARE_VERSION", "KNOTTYYOGA_VERSION");
     if (val == nullptr || val[0] == '\0') return "unknown";
     return std::string(val);
 }

@@ -17,7 +17,8 @@ REM No database environment variables are set here on purpose. The framework's
 REM default Linux DB host is literally "postgresql", and a docker-compose service
 REM named postgresql gets that alias on its network -- so joining the network is
 REM the whole configuration. Defaults also cover port 5432 and user/password
-REM docker/docker. Override with -e KNOTTYYOGA_DB_* if your setup differs.
+REM docker/docker. Override with -e HONUWARE_DB_* if your setup differs (the
+REM legacy -e KNOTTYYOGA_DB_* names are still accepted as a fallback).
 
 set NETWORK=%~1
 if "%NETWORK%"=="" set NETWORK=%HONUWARE_DB_NETWORK%
@@ -67,18 +68,18 @@ REM                          Visual Studio uses. Being a named volume, it also
 REM                          survives --rm, so rebuilds stay incremental.
 REM                          Nuke it with: docker volume rm honuware-linux-build
 REM
-REM KNOTTYYOGA_DB_SSLMODE=disable: a Release build defines NDEBUG, which defaults
+REM HONUWARE_DB_SSLMODE=disable: a Release build defines NDEBUG, which defaults
 REM sslmode to "prefer"; the postgres image serves plaintext, so "prefer" would
 REM silently fall back. Pinning it keeps a TLS misconfiguration from looking like
-REM a flake. (Yes, the prefix is brand-specific -- that is what the framework code
-REM currently reads; the HONUWARE_DB_* rename is a logged follow-up.)
+REM a flake. (The framework also accepts the legacy KNOTTYYOGA_DB_SSLMODE name as
+REM a fallback.)
 
 docker run --rm -it ^
     --network %NETWORK% ^
     -v "%REPO_ROOT%:/src" ^
     -v honuware-conan2:/root/.conan2 ^
     -v honuware-linux-build:/build ^
-    -e KNOTTYYOGA_DB_SSLMODE=disable ^
+    -e HONUWARE_DB_SSLMODE=disable ^
     -w /src ^
     honuware_build:latest bash
 

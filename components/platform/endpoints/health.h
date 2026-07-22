@@ -11,9 +11,10 @@
 namespace Endpoints {
 
 // Build version reported in the health response. Reads the env var
-// KNOTTYYOGA_VERSION at every call (cheap) and falls back to "unknown" when
-// unset or empty. Operators set this on the EC2 to pin which artifact is
-// live (e.g., a git short-sha or release tag).
+// HONUWARE_VERSION at every call (cheap), falling back to the legacy
+// KNOTTYYOGA_VERSION and then to "unknown" when unset or empty. Operators set
+// this on the EC2 to pin which artifact is live (e.g., a git short-sha or
+// release tag).
 std::string GetBuildVersion();
 
 // Pure: builds the JSON body for the health response. Exposed so unit tests

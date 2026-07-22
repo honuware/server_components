@@ -4,16 +4,24 @@
 #include <string>
 #include <string_view>
 
+#include "util/env.h"
 #include "util/logging.h"
 
 namespace {
 
-// Returns the env var if set and non-empty; otherwise the fallback. Treating
-// an explicitly-empty value as "unset" matches how operators clear an
-// inherited variable in shells (`KNOTTYYOGA_DB_HOST=` to fall back) and is
-// also what `_putenv_s(name, "")` produces on Windows when removing a var.
-std::string EnvOr(const char* name, std::string_view fallback) {
-    const char* val = std::getenv(name);
+// Reads the canonical HONUWARE_DB_* variable, falling back to the legacy
+// KNOTTYYOGA_DB_* name (the componentization Phase 1.1 rename convention, via
+// Util::GetEnvWithFallback) and finally to `fallback` when neither resolves to a
+// non-empty value. An empty resolved value is treated as "unset".
+//
+// The realistic inputs — canonical set to a real value, canonical absent with
+// legacy set, or both absent — behave identically on every platform. The only
+// edge that differs is a canonical var set to the *empty string*, which is not
+// even constructible the same way (POSIX setenv keeps a present-but-empty var;
+// Windows _putenv_s removes it), so this code deliberately does not rely on it.
+std::string DbEnvOr(const char* canonical, const char* legacy,
+                    std::string_view fallback) {
+    const char* val = Util::GetEnvWithFallback(canonical, legacy);
     if (val == nullptr || val[0] == '\0') {
         return std::string(fallback);
     }
@@ -33,20 +41,20 @@ DatabaseHelperInit::DatabaseHelperInit(std::string_view defaultDatabaseName) {
     // matches the legacy format that the local PostgreSQL test container
     // expects. Release builds (NDEBUG defined) default to "prefer" so the
     // RDS-fronted production server gets TLS opportunistically. Either can
-    // be overridden by the KNOTTYYOGA_DB_SSLMODE env var.
+    // be overridden by the HONUWARE_DB_SSLMODE env var.
 #ifdef NDEBUG
     constexpr std::string_view kDefaultSslMode = "prefer";
 #else
     constexpr std::string_view kDefaultSslMode = "";
 #endif
 
-    user        = EnvOr("KNOTTYYOGA_DB_USER",        "docker");
-    host        = EnvOr("KNOTTYYOGA_DB_HOST",        kDefaultHost);
-    password    = EnvOr("KNOTTYYOGA_DB_PASSWORD",    "docker");
-    port        = EnvOr("KNOTTYYOGA_DB_PORT",        "5432");
-    dbname      = EnvOr("KNOTTYYOGA_DB_NAME",        defaultDatabaseName);
-    sslMode     = EnvOr("KNOTTYYOGA_DB_SSLMODE",     kDefaultSslMode);
-    sslRootCert = EnvOr("KNOTTYYOGA_DB_SSLROOTCERT", "");
+    user        = DbEnvOr("HONUWARE_DB_USER",        "KNOTTYYOGA_DB_USER",        "docker");
+    host        = DbEnvOr("HONUWARE_DB_HOST",        "KNOTTYYOGA_DB_HOST",        kDefaultHost);
+    password    = DbEnvOr("HONUWARE_DB_PASSWORD",    "KNOTTYYOGA_DB_PASSWORD",    "docker");
+    port        = DbEnvOr("HONUWARE_DB_PORT",        "KNOTTYYOGA_DB_PORT",        "5432");
+    dbname      = DbEnvOr("HONUWARE_DB_NAME",        "KNOTTYYOGA_DB_NAME",        defaultDatabaseName);
+    sslMode     = DbEnvOr("HONUWARE_DB_SSLMODE",     "KNOTTYYOGA_DB_SSLMODE",     kDefaultSslMode);
+    sslRootCert = DbEnvOr("HONUWARE_DB_SSLROOTCERT", "KNOTTYYOGA_DB_SSLROOTCERT", "");
 }
 
 std::string DatabaseHelperInit::GetConnectionString() const {

@@ -82,20 +82,19 @@ jobs:
       # The job runs in a container, so the service is reachable by its label
       # (`postgres`) on the compose network — no host port mapping needed.
       #
-      # NOTE the KNOTTYYOGA_* prefix: these are the names the FRAMEWORK code
-      # actually reads (components/data/sql_util/database_access/
-      # database_helper_init.cpp). The Phase 1.1 HONUWARE_* rename never covered
-      # the DB vars, so honuware's own CI has to set a brand-specific prefix. That
-      # is a real residual brand leak, tracked as a follow-up — this file must keep
-      # setting what the code reads until the rename lands.
-      KNOTTYYOGA_DB_HOST: postgres
-      KNOTTYYOGA_DB_PORT: "5432"
-      KNOTTYYOGA_DB_USER: docker
-      KNOTTYYOGA_DB_PASSWORD: docker
+      # The canonical HONUWARE_DB_* names the FRAMEWORK code reads
+      # (components/data/sql_util/database_access/database_helper_init.cpp). The
+      # code also accepts the legacy KNOTTYYOGA_DB_* names as a fallback (via
+      # Util::GetEnvWithFallback), so older deploy configs keep working during
+      # the transition.
+      HONUWARE_DB_HOST: postgres
+      HONUWARE_DB_PORT: "5432"
+      HONUWARE_DB_USER: docker
+      HONUWARE_DB_PASSWORD: docker
       # Release implies NDEBUG, which defaults sslmode to "prefer". The postgres
       # image serves plaintext, so "prefer" would silently fall back — pin it to
       # disable so a TLS misconfiguration can never masquerade as a flake.
-      KNOTTYYOGA_DB_SSLMODE: disable
+      HONUWARE_DB_SSLMODE: disable
 
       CONAN_HOME: /root/.conan2
 

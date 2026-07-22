@@ -89,8 +89,9 @@ the working-directory-relative `certs/cacert.pem`, which the build copies there.
 
 The runner DROPs and CREATEs `honuware_test` itself on every run, so it needs a
 PostgreSQL where the login role may create databases. Connection settings come
-from `KNOTTYYOGA_DB_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_SSLMODE`
-(defaulting to host `postgresql`, user/password `docker`/`docker` on Linux) — see
+from `HONUWARE_DB_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_SSLMODE` (the legacy
+`KNOTTYYOGA_DB_*` names are still accepted as a fallback; defaulting to host
+`postgresql`, user/password `docker`/`docker` on Linux) — see
 `components/data/sql_util/database_access/database_helper_init.h`. The bootstrap
 connection that issues `CREATE DATABASE` omits the database name, and libpq
 defaults an empty database name to the *user name*, so a database matching the
