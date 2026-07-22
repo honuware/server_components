@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include "db_schema/make_framework_tables.h"
+#include "db_schema/tenants.h"
 #include "endpoints/register_framework_endpoints.h"
 #include "sql_util/schema/database_info.h"
 #include "test/src/util/global_database_test_support.h"
@@ -25,6 +26,11 @@ int main(int argc, char** argv)
 
     DbSchema::DatabaseInfo databaseInfo("honuware_test");
     DbSchema::MakeFrameworkTables(databaseInfo);
+    // Compose the control-plane `tenants` table into the primary test schema so
+    // the tenancy table-helper / resolver tests run against the ordinary harness.
+    // (schema_migrations is already part of the framework set, so only tenants is
+    // added here — not the full MakeControlDatabaseInfo, which would duplicate it.)
+    DbSchema::MakeTenantsTable(databaseInfo);
 
     if(!GlobalDatabaseTestSupport::Initialize(databaseInfo)) {
         std::cout << "Failed to initialize GlobalDatabaseTestSupport." << std::endl;

@@ -39,6 +39,8 @@ target_sources(honuware_platform
     idempotency_keys.cpp
     login_attempts.h
     login_attempts.cpp
+    make_control_database_info.h
+    make_control_database_info.cpp
     make_framework_tables.h
     make_framework_tables.cpp
     people.h
@@ -59,12 +61,15 @@ target_sources(honuware_platform
     schema_migrations.cpp
     sessions.h
     sessions.cpp
+    tenants.h
+    tenants.cpp
 )
 
 target_sources(${HONUWARE_TESTS_TARGET}
     PUBLIC
     device_tokens_test.cpp
     email_verifications_test.cpp
+    make_control_database_info_test.cpp
     people_test.cpp
     role_assignments_test.cpp
     role_permissions_test.cpp

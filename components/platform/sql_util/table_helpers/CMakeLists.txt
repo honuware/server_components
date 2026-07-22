@@ -65,11 +65,14 @@ target_sources(honuware_platform
     schema_migrations.cpp
     sessions.h
     sessions.cpp
+    tenants.h
+    tenants.cpp
 )
 
 target_sources(${HONUWARE_TESTS_TARGET}
     PUBLIC
     admin_alerts_test.cpp
+    tenants_test.cpp
     admin_column_data_info_test.cpp
     auth_events_test.cpp
     admin_column_enums_test.cpp

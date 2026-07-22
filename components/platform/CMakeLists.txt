@@ -12,6 +12,9 @@ target_include_directories(honuware_platform PUBLIC ${CMAKE_CURRENT_LIST_DIR})
 add_subdirectory(business_logic/auth)
 add_subdirectory(business_logic/images)
 add_subdirectory(business_logic/migration)
+# Multi-tenancy control plane (tenancy plan Phase 1): control-DB access +
+# TenantResolver. Depends on the tenants schema/table-helper added below.
+add_subdirectory(business_logic/tenancy)
 
 # Phase 3.1.3: the framework schema + table-helpers + admin-metadata driver.
 #   db_schema/               — framework table DDL + column constants (people,
