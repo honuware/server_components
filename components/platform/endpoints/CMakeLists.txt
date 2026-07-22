@@ -66,6 +66,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     csrf_guard_test.cpp
     security_headers_test.cpp
     health_test.cpp
+    web_app_tenancy_test.cpp
     get_table_rows_test.cpp
 )
 

@@ -40,6 +40,13 @@ namespace Auth {
 
 }
 
+namespace Tenancy {
+
+    class TenantResolver;
+    class TenantResourceRegistry;
+
+}  // namespace Tenancy
+
 // Wraps the Crow application for production and testing purposes.
 class WebApp {
 public:
@@ -113,6 +120,26 @@ public:
     // helper can strip redacted columns at the JSON boundary.
     const TableHelpers::ColumnRedactionSet& GetColumnRedactions() const;
 
+    // Multi-tenancy (tenancy plan Phase 2.3). Optionally installed at startup: the
+    // resolver maps a site key → TenantContext and the registry builds/caches the
+    // per-tenant resources. Both are null until installed; Phase 3 wires the
+    // request edge to read them. Held as shared_ptr so the framework need not know
+    // the concrete resolver/registry construction. Inline (shared_ptr of an
+    // incomplete type is fine — the deleter is captured where they are created).
+    void SetTenantResolver(std::shared_ptr<Tenancy::TenantResolver> resolver) {
+        tenantResolver_ = std::move(resolver);
+    }
+    std::shared_ptr<Tenancy::TenantResolver> GetTenantResolver() const {
+        return tenantResolver_;
+    }
+    void SetTenantResourceRegistry(
+        std::shared_ptr<Tenancy::TenantResourceRegistry> registry) {
+        tenantRegistry_ = std::move(registry);
+    }
+    std::shared_ptr<Tenancy::TenantResourceRegistry> GetTenantResourceRegistry() const {
+        return tenantRegistry_;
+    }
+
 private:
     AppType app_;
     DatabaseHelper databaseHelper_;
@@ -124,6 +151,8 @@ private:
     Auth::CookieManagerFactoryPtr cookieManagerFactory_;
     TableHelpers::ColumnRedactionSet columnRedactions_;
     std::unordered_map<std::type_index, std::shared_ptr<void>> services_;
+    std::shared_ptr<Tenancy::TenantResolver> tenantResolver_;
+    std::shared_ptr<Tenancy::TenantResourceRegistry> tenantRegistry_;
 };
 
 // Base class for registering an individual route.

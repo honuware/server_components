@@ -15,6 +15,8 @@ target_sources(honuware_data
     db_and_table_operations.cpp
     extensions.h
     extensions.cpp
+    pooled_transaction_provider.h
+    pooled_transaction_provider.cpp
     production_transaction_provider.h
     production_transaction_provider.cpp
     transaction.h
@@ -32,6 +34,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     database_util_test.cpp
     db_and_table_operations_test.cpp
     extensions_test.cpp
+    pooled_transaction_provider_test.cpp
     transaction_impl_test.cpp
 )
 

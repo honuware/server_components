@@ -9,10 +9,13 @@ target_sources(honuware_platform
     tenant_context.h
     tenant_resolver.h
     tenant_resolver.cpp
+    tenant_resources.h
+    tenant_resources.cpp
 )
 
 target_sources(${HONUWARE_TESTS_TARGET}
     PUBLIC
     control_database_test.cpp
     tenant_resolver_test.cpp
+    tenant_resources_test.cpp
 )
