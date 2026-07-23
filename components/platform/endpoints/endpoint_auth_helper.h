@@ -1,8 +1,12 @@
 #pragma once
 
+#include <optional>
+
 #include <crow.h>
 #include "web_app.h"
 #include "business_logic/auth/session.h"
+#include "business_logic/tenancy/tenant_context.h"
+#include "business_logic/tenancy/tenant_resources.h"
 
 namespace Auth {
 
@@ -30,6 +34,16 @@ public:
     const crow::request& Request() const;
     crow::response& Response();
     Auth::Session& GetSession();
+
+    // Multi-tenancy (tenancy plan Phase 3.2). After Initialize() has resolved the
+    // request's tenant (via the resolver installed on WebApp), these return that
+    // tenant's identity + resources; before resolution — or when no tenancy is
+    // wired — GetTenantResources() is null and GetTenantContext() is the default
+    // (tenantId 0). The request-edge failure short-circuit for unknown/suspended
+    // sites is handled upstream by TenantResolutionGuard, so by the time an
+    // endpoint runs, resolution has already succeeded (or tenancy is inert).
+    const Tenancy::TenantContext& GetTenantContext() const;
+    Tenancy::TenantResourcesPtr GetTenantResources() const;
 
     // Convenience accessors delegating to WebApp
     DbSchema::DatabaseInfo GetDatabaseInfo() const;
@@ -70,9 +84,19 @@ public:
         crow::response& resp);
 
 private:
+    // Resolves the request's tenant (from the resolver on WebApp + the
+    // X-Honuware-Site header), builds/caches its resources, and (re)binds the
+    // session to the effective database. Called at the top of Initialize().
+    void ResolveTenant();
+
     WebApp& app_;
     const crow::request& request_;
     crow::response& response_;
-    Auth::Session session_;
+    // Constructed against the effective (tenant or global) database in
+    // ResolveTenant(); optional only so it can be rebound once the tenant is
+    // known. Always populated before any handler touches it.
+    std::optional<Auth::Session> session_;
     Auth::CookieManagerPtr cookieManager_;
+    Tenancy::TenantContext tenantContext_;
+    Tenancy::TenantResourcesPtr tenantResources_;
 };

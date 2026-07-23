@@ -1,8 +1,11 @@
 #include "endpoint_auth_helper.h"
 
 #include <set>
+#include <string>
 
 #include "business_logic/auth/cookie_manager.h"
+#include "business_logic/tenancy/tenant_header.h"
+#include "business_logic/tenancy/tenant_resolver.h"
 #include "util/error_response.h"
 #include "sql_util/table_helpers/admin_table_permissions.h"
 #include "sql_util/table_helpers/admin_top_level_tables.h"
@@ -13,6 +16,7 @@
 #include "db_schema/permissions.h"
 #include "db_schema/role_assignments.h"
 #include "db_schema/role_permissions.h"
+#include "db_schema/tenants.h"
 #include "util/logging.h"
 
 EndpointAuthHelper::EndpointAuthHelper(
@@ -21,21 +25,57 @@ EndpointAuthHelper::EndpointAuthHelper(
     crow::response& res)
     : app_(app),
       request_(req),
-      response_(res),
-      session_(app.GetDatabaseHelper()) {}
+      response_(res) {
+    // Bind the session to the global database for now; ResolveTenant() rebinds it
+    // to the tenant database once Initialize() resolves the request's tenant.
+    session_.emplace(app.GetDatabaseHelper());
+}
+
+void EndpointAuthHelper::ResolveTenant() {
+    // Route this request to its tenant, if tenancy is wired. TenantResolutionGuard
+    // has already rejected any unknown/suspended/contradicting site upstream, so a
+    // resolver hit here is a success; a miss means tenancy is inert (no resolver)
+    // and we stay on the deployment's global provider.
+    std::shared_ptr<Tenancy::TenantResolver> resolver = app_.GetTenantResolver();
+    std::shared_ptr<Tenancy::TenantResourceRegistry> registry =
+        app_.GetTenantResourceRegistry();
+    if (resolver && registry) {
+        std::string siteKey(
+            request_.get_header_value(std::string(Tenancy::kSiteHeaderName)));
+        std::optional<Tenancy::TenantContext> resolved = resolver->Resolve(siteKey);
+        if (resolved.has_value() &&
+            resolved->status != std::string(DbSchema::kTenantStatusSuspended)) {
+            tenantContext_ = *resolved;
+            tenantResources_ = registry->GetOrCreate(tenantContext_);
+        }
+    }
+
+    // (Re)bind the session to the effective database — the tenant's when resolved,
+    // the global otherwise — so session role/permission reads run against it.
+    session_.emplace(GetDatabaseHelper());
+}
 
 void EndpointAuthHelper::Initialize() {
+    ResolveTenant();
     cookieManager_ = app_.GetCookieManagerFactory()->CreateCookieManager(
         app_, request_, response_);
     try {
-        app_.GetTransactionProvider()->RunInTransaction(
+        GetTransactionProvider()->RunInTransaction(
             [&](Transaction& transaction) {
-                session_.InitializeFromFromCookie(transaction, cookieManager_);
+                session_->InitializeFromFromCookie(transaction, cookieManager_);
             });
     }
     catch (...) {
         // Swallow all errors here
     }
+}
+
+const Tenancy::TenantContext& EndpointAuthHelper::GetTenantContext() const {
+    return tenantContext_;
+}
+
+Tenancy::TenantResourcesPtr EndpointAuthHelper::GetTenantResources() const {
+    return tenantResources_;
 }
 
 WebApp& EndpointAuthHelper::App() {
@@ -51,7 +91,7 @@ crow::response& EndpointAuthHelper::Response() {
 }
 
 Auth::Session& EndpointAuthHelper::GetSession() {
-    return session_;
+    return *session_;
 }
 
 DbSchema::DatabaseInfo EndpointAuthHelper::GetDatabaseInfo() const {
@@ -67,10 +107,20 @@ Mail::MailHelperPtr EndpointAuthHelper::GetMailHelper() const {
 }
 
 TransactionProviderPtr EndpointAuthHelper::GetTransactionProvider() const {
+    // Re-pointed to the resolved tenant's provider (Phase 3.2); falls back to the
+    // deployment's global provider when no tenant is resolved.
+    if (tenantResources_ && tenantResources_->transactionProvider) {
+        return tenantResources_->transactionProvider;
+    }
     return app_.GetTransactionProvider();
 }
 
 DatabaseHelper EndpointAuthHelper::GetDatabaseHelper() const {
+    // Re-pointed to the resolved tenant's database (Phase 3.2); falls back to the
+    // deployment's global database when no tenant is resolved.
+    if (tenantResources_ && tenantResources_->databaseHelper) {
+        return *tenantResources_->databaseHelper;
+    }
     return app_.GetDatabaseHelper();
 }
 
@@ -86,7 +136,7 @@ StringArray EndpointAuthHelper::GetAllowedTables(Transaction& transaction) {
     StringArray tables = app_.GetAllowedTables(transaction);
 
     try {
-        if (session_.IsLoggedIn()) {
+        if (session_->IsLoggedIn()) {
             std::set<std::string> tableSet(tables.begin(), tables.end());
 
             auto addTablesIfNew = [&](const StringArray& newTables) {
@@ -98,23 +148,23 @@ StringArray EndpointAuthHelper::GetAllowedTables(Transaction& transaction) {
                 }
             };
 
-            if (session_.IsAdmin(transaction)) {
+            if (session_->IsAdmin(transaction)) {
                 // Admins get all admin tables
-                TableHelpers::AdminTopLevelTables adminTopLevel(app_.GetDatabaseHelper());
+                TableHelpers::AdminTopLevelTables adminTopLevel(GetDatabaseHelper());
                 addTablesIfNew(adminTopLevel.GetAdminTopLevelTables(transaction));
 
-                TableHelpers::AdminNestedTables adminNested(app_.GetDatabaseHelper());
+                TableHelpers::AdminNestedTables adminNested(GetDatabaseHelper());
                 addTablesIfNew(adminNested.GetAdminNestedTables(transaction));
             } else {
                 // Non-admin users: check admin_table_permissions for
                 // tables granted through the user's permissions
-                int64_t personId = session_.GetPersonId();
-                TableHelpers::RoleAssignments ra(app_.GetDatabaseHelper());
+                int64_t personId = session_->GetPersonId();
+                TableHelpers::RoleAssignments ra(GetDatabaseHelper());
                 KeyValueTableArray assignments = ra.GetRoleAssignmentsForPerson(
                     transaction, personId);
 
                 // Collect all permission IDs the user has
-                TableHelpers::RolePermissions rp(app_.GetDatabaseHelper());
+                TableHelpers::RolePermissions rp(GetDatabaseHelper());
                 std::set<int64_t> userPermissionIds;
                 for (const auto& kv : assignments) {
                     int64_t roleId = std::stoll(
@@ -130,7 +180,7 @@ StringArray EndpointAuthHelper::GetAllowedTables(Transaction& transaction) {
 
                 // For each permission, find tables that require it
                 if (!userPermissionIds.empty()) {
-                    TableHelpers::AdminTablePermissions atp(app_.GetDatabaseHelper());
+                    TableHelpers::AdminTablePermissions atp(GetDatabaseHelper());
                     for (int64_t permId : userPermissionIds) {
                         StringArray permTables = atp.GetTablesForPermissionId(
                             transaction, permId);
@@ -159,12 +209,12 @@ bool EndpointAuthHelper::RequirePermission(
     Transaction& transaction,
     std::string_view permissionName,
     crow::response& resp) {
-    if (!session_.IsLoggedIn()) {
+    if (!session_->IsLoggedIn()) {
         resp = ErrorResponse::NotAuthenticated("Login required");
         return false;
     }
     try {
-        if (!session_.ActiveUserHasPermission(transaction, permissionName)) {
+        if (!session_->ActiveUserHasPermission(transaction, permissionName)) {
             resp = ErrorResponse::NotAuthorized(
                 "Missing required permission");
             return false;

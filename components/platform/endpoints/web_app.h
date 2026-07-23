@@ -13,8 +13,10 @@
 
 #include "endpoints/web_app_types.h"
 #include "endpoints/cloudfront_origin_guard.h"
+#include "endpoints/tenant_resolution_guard.h"
 #include "endpoints/csrf_guard.h"
 #include "endpoints/security_headers.h"
+#include "business_logic/tenancy/tenant_header.h"
 #include "sql_util/database_access/database_helper.h"
 #include "sql_util/schema/database_info.h"
 #include "sql_util/database_access/transaction_provider.h"
@@ -61,6 +63,7 @@ public:
     // land on the response before any other middleware mutates it.
     using AppType = crow::App<
         Endpoints::CloudFrontOriginGuard,
+        Endpoints::TenantResolutionGuard,
         crow::CookieParser,
         crow::CORSHandler,
         Endpoints::CsrfGuard,
@@ -120,15 +123,19 @@ public:
     // helper can strip redacted columns at the JSON boundary.
     const TableHelpers::ColumnRedactionSet& GetColumnRedactions() const;
 
-    // Multi-tenancy (tenancy plan Phase 2.3). Optionally installed at startup: the
+    // Multi-tenancy (tenancy plan Phase 2.3 / 3.1). Installed at startup: the
     // resolver maps a site key → TenantContext and the registry builds/caches the
-    // per-tenant resources. Both are null until installed; Phase 3 wires the
-    // request edge to read them. Held as shared_ptr so the framework need not know
-    // the concrete resolver/registry construction. Inline (shared_ptr of an
-    // incomplete type is fine — the deleter is captured where they are created).
-    void SetTenantResolver(std::shared_ptr<Tenancy::TenantResolver> resolver) {
-        tenantResolver_ = std::move(resolver);
-    }
+    // per-tenant resources. Both are null until installed. Held as shared_ptr so
+    // the framework need not know the concrete resolver/registry construction.
+    //
+    // SetTenantResolver is out-of-line (web_app_framework.cpp) because it ALSO
+    // pushes the resolver + mode into the TenantResolutionGuard middleware, which
+    // performs the request-edge resolution + failure short-circuit (Phase 3.2/3.3).
+    // The stored resolver is read by EndpointAuthHelper::Initialize() to route a
+    // successfully-admitted request to its tenant's resources.
+    void SetTenantResolver(
+        std::shared_ptr<Tenancy::TenantResolver> resolver,
+        Tenancy::TenancyMode mode = Tenancy::TenancyMode::Fixed);
     std::shared_ptr<Tenancy::TenantResolver> GetTenantResolver() const {
         return tenantResolver_;
     }

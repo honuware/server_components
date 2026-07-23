@@ -80,6 +80,17 @@ const TableHelpers::ColumnRedactionSet& WebApp::GetColumnRedactions() const {
     return columnRedactions_;
 }
 
+void WebApp::SetTenantResolver(
+    std::shared_ptr<Tenancy::TenantResolver> resolver,
+    Tenancy::TenancyMode mode) {
+    tenantResolver_ = resolver;
+    // Feed the request-edge middleware too, so a single call from the composition
+    // root installs both the stored resolver (read by EndpointAuthHelper) and the
+    // guard that rejects misdirected requests before any handler runs (Phase 3.2).
+    app_.get_middleware<Endpoints::TenantResolutionGuard>().SetResolver(
+        std::move(resolver), mode);
+}
+
 // Private routing helpers
 namespace {
 

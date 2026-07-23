@@ -13,6 +13,8 @@ target_sources(honuware_platform
     endpoint_auth_helper.cpp
     cloudfront_origin_guard.h
     cloudfront_origin_guard.cpp
+    tenant_resolution_guard.h
+    tenant_resolution_guard.cpp
     csrf_guard.h
     csrf_guard.cpp
     security_headers.h
@@ -63,10 +65,12 @@ target_sources(${HONUWARE_TESTS_TARGET}
     update_item_test.cpp
     endpoint_auth_helper_test.cpp
     cloudfront_origin_guard_test.cpp
+    tenant_resolution_guard_test.cpp
     csrf_guard_test.cpp
     security_headers_test.cpp
     health_test.cpp
     web_app_tenancy_test.cpp
+    endpoint_auth_helper_tenancy_test.cpp
     get_table_rows_test.cpp
 )
 

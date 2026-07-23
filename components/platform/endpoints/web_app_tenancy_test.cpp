@@ -20,10 +20,12 @@ TEST(WebAppTenancyTest, ReturnsInstalledResolverAndRegistry) {
             EndpointTestHelper endpointHelper(transaction, testDb);
             WebApp& webApp = endpointHelper.GetWebApp();
 
-            // Nothing installed → null.
-            EXPECT_EQ(webApp.GetTenantResolver(), nullptr);
-            EXPECT_EQ(webApp.GetTenantResourceRegistry(), nullptr);
+            // EndpointTestHelper installs a default fixed tenant (Phase 3.4), so
+            // both are present after construction.
+            EXPECT_NE(webApp.GetTenantResolver(), nullptr);
+            EXPECT_NE(webApp.GetTenantResourceRegistry(), nullptr);
 
+            // Installing new ones replaces the defaults; the getters return them.
             Tenancy::TenantContext context;
             context.tenantId = 1;
             context.siteKey = "knotty";
@@ -34,7 +36,7 @@ TEST(WebAppTenancyTest, ReturnsInstalledResolverAndRegistry) {
             std::shared_ptr<Tenancy::TenantResourceRegistry> registry =
                 std::make_shared<Tenancy::TenantResourceRegistry>();
 
-            webApp.SetTenantResolver(resolver);
+            webApp.SetTenantResolver(resolver, Tenancy::TenancyMode::Fixed);
             webApp.SetTenantResourceRegistry(registry);
 
             EXPECT_EQ(webApp.GetTenantResolver(), resolver);
