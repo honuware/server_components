@@ -10,6 +10,11 @@
 #include "tenant_context.h"
 #include "sql_util/database_access/pooled_transaction_provider.h"
 #include "sql_util/database_access/transaction.h"
+#include "util/mail/mail_helper.h"
+#include "util/mail/mail_helper_test_util.h"
+#include "util/secrets/secret_keys.h"
+#include "util/secrets/secrets_at_rest.h"
+#include "util/secrets/secrets_helper.h"
 #include "test/src/util/database_test_helper.h"
 
 namespace Tenancy {
@@ -128,6 +133,91 @@ TEST(TenantResourcesTest, DefaultFactoryBuildsUsableResourcesAgainstRealDb) {
     resources->transactionProvider->RunInTransaction(
         [&](Transaction&) { ran = true; });
     EXPECT_TRUE(ran);
+}
+
+TEST(TenantResourcesTest, SecretsAtRestFactoryBuildsUsableSecretsHelper) {
+    // Phase 4.1: the secretsAtRest overload builds the tenant's own SecretsHelper.
+    TestDatabaseUtil testDb;
+    std::string dbName = testDb.GetDatabaseHelper().GetDatabaseName();
+    TenantContext context = MakeContext(1, "test", dbName);
+
+    Secrets::SecretsAtRestPtr secretsAtRest =
+        Secrets::MakeSecretsAtRest(/*isProd=*/false);
+    TenantResourcesPtr resources =
+        MakeDefaultTenantResources(context, secretsAtRest);
+    ASSERT_NE(resources, nullptr);
+    ASSERT_NE(resources->secretsHelper, nullptr);
+
+    // Usable: round-trips a secret through the tenant database inside the test's
+    // aborted transaction, so nothing persists.
+    testDb.RunInTransaction("phase41-secrets", [&](Transaction& transaction) {
+        resources->secretsHelper->AddSecret(
+            transaction, "phase41_key", "phase41_value");
+        EXPECT_EQ(
+            resources->secretsHelper->LookupSecret(transaction, "phase41_key"),
+            "phase41_value");
+    });
+}
+
+TEST(TenantResourcesTest, DefaultFactoryLeavesSecretsHelperNull) {
+    // Without the secretsAtRest overload, secretsHelper stays null so
+    // EndpointAuthHelper falls back to the global SecretsHelper.
+    TestDatabaseUtil testDb;
+    std::string dbName = testDb.GetDatabaseHelper().GetDatabaseName();
+    TenantResourcesPtr resources =
+        MakeDefaultTenantResources(MakeContext(1, "test", dbName));
+    EXPECT_EQ(resources->secretsHelper, nullptr);
+}
+
+TEST(TenantResourcesTest, EnsureServicesBuildsMailHelperFromTenantSecretsOnce) {
+    // Phase 4.3: EnsureServices builds the tenant MailHelper from its own secrets.
+    TestDatabaseUtil testDb;
+    std::string dbName = testDb.GetDatabaseHelper().GetDatabaseName();
+    TenantContext context = MakeContext(1, "test", dbName);
+    Secrets::SecretsAtRestPtr secretsAtRest =
+        Secrets::MakeSecretsAtRest(/*isProd=*/false);
+    TenantResourcesPtr resources =
+        MakeDefaultTenantResources(context, secretsAtRest);
+    EXPECT_EQ(resources->mailHelper, nullptr);  // not built yet
+
+    Mail::MailHelperPtr built;
+    testDb.RunInTransaction("ensure-services", [&](Transaction& transaction) {
+        // Seed SMTP config so MakeMailHelper can read a valid port (aborted).
+        resources->secretsHelper->AddSecret(
+            transaction, Secrets::kMailServerName, "smtp.tenant.test");
+        resources->secretsHelper->AddSecret(
+            transaction, Secrets::kMailServerPort, "587");
+        resources->secretsHelper->AddSecret(
+            transaction, Secrets::kMailAppPassword, "pw");
+        resources->secretsHelper->AddSecret(
+            transaction, Secrets::kMailServerMethod, "tls");
+
+        resources->EnsureServices(transaction);
+        built = resources->mailHelper;
+        ASSERT_NE(built, nullptr);
+
+        // call_once: a second call does not rebuild.
+        resources->EnsureServices(transaction);
+        EXPECT_EQ(resources->mailHelper, built);
+    });
+}
+
+TEST(TenantResourcesTest, EnsureServicesKeepsInjectedMailHelper) {
+    // Phase 4.3: an injected mail helper (the test path) is left untouched — no
+    // real SMTP build happens, so tests keep their recording double.
+    TestDatabaseUtil testDb;
+    std::string dbName = testDb.GetDatabaseHelper().GetDatabaseName();
+    Secrets::SecretsAtRestPtr secretsAtRest =
+        Secrets::MakeSecretsAtRest(/*isProd=*/false);
+    TenantResourcesPtr resources = MakeDefaultTenantResources(
+        MakeContext(1, "test", dbName), secretsAtRest);
+    Mail::MailHelperPtr injected = Mail::Test::MakeTestMailHelper();
+    resources->mailHelper = injected;
+
+    testDb.RunInTransaction("ensure-injected", [&](Transaction& transaction) {
+        resources->EnsureServices(transaction);
+    });
+    EXPECT_EQ(resources->mailHelper, injected);  // unchanged
 }
 
 }  // namespace

@@ -44,12 +44,21 @@ TableHelpers::ColumnRedactionSet LoadRedactionsAtTestStartup(
 // transaction; this keeps every resolved tenant on the SAME test transaction so
 // rollback still cleans everything up and existing endpoint tests are unaffected.
 Tenancy::TenantResourceRegistry::Factory MakeTestTenantResourceFactory(
-    TransactionProviderPtr provider, DatabaseHelper databaseHelper) {
-    return [provider, databaseHelper](const Tenancy::TenantContext& context) {
+    TransactionProviderPtr provider,
+    DatabaseHelper databaseHelper,
+    Secrets::SecretsHelperPtr secretsHelper,
+    Mail::MailHelperPtr mailHelper) {
+    return [provider, databaseHelper, secretsHelper, mailHelper](
+               const Tenancy::TenantContext& context) {
         auto resources = std::make_shared<Tenancy::TenantResources>();
         resources->context = context;
         resources->databaseHelper = databaseHelper;
         resources->transactionProvider = provider;
+        // Phase 4.1/4.3: inject the test doubles so per-request GetSecretsHelper()
+        // / GetMailHelper() resolve to them (matching the WebApp globals) and
+        // EnsureServices() finds mail already set and skips the real SMTP build.
+        resources->secretsHelper = secretsHelper;
+        resources->mailHelper = mailHelper;
         return resources;
     };
 }
@@ -125,7 +134,9 @@ EndpointTestHelper::EndpointTestHelper(
             std::make_shared<Tenancy::TenantResourceRegistry>(
                 MakeTestTenantResourceFactory(
                     testTransactionProvider_,
-                    testDatabaseUtil_.GetDatabaseHelper())));
+                    testDatabaseUtil_.GetDatabaseHelper(),
+                    secretsHelper_,
+                    mailHelper_)));
         webApp_.SetTenantResolver(
             std::make_shared<Tenancy::FixedTenantResolver>(context),
             Tenancy::TenancyMode::Fixed);
@@ -162,7 +173,9 @@ EndpointTestHelper::ControlTenants EndpointTestHelper::InstallControlModeTenants
 
     webApp_.SetTenantResourceRegistry(
         std::make_shared<Tenancy::TenantResourceRegistry>(
-            MakeTestTenantResourceFactory(testTransactionProvider_, databaseHelper)));
+            MakeTestTenantResourceFactory(
+                testTransactionProvider_, databaseHelper, secretsHelper_,
+                mailHelper_)));
     webApp_.SetTenantResolver(
         std::make_shared<Tenancy::ControlDbTenantResolver>(
             testTransactionProvider_, databaseHelper),

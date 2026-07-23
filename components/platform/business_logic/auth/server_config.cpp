@@ -83,6 +83,16 @@ void ServerConfig::Initialize(
     inst.testMode_ = false;
 
     // --- CORS config ---
+    // Tenancy plan Phase 4.4: this stays a startup global pin (to the
+    // deployment's primary website_address), NOT a per-tenant dynamic check.
+    // Rationale: every tenant is served same-origin behind its OWN CloudFront
+    // (the SPA and the API share a host), so the browser never issues a
+    // cross-origin request and CORS never engages — the pin is effectively a
+    // no-op in the real topology. A per-tenant dynamic ACAO check would need the
+    // resolved tenant's origin (a per-tenant secret) inside the CORS middleware;
+    // it is deferred as hygiene until a genuinely cross-origin tenant appears.
+    // Per-tenant COOKIE Domain, which DOES matter, already flows from the
+    // per-tenant SecretsHelper (Phase 4.1) via BuildAuthCookieProperties.
     std::string serverName = secretsHelper->LookupSecret(
         transaction, Secrets::kWebsiteAddress);
     auto& cors = webApp->GetApp().get_middleware<crow::CORSHandler>();

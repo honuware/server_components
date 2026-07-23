@@ -10,6 +10,8 @@
 #include "tenant_context.h"
 #include "sql_util/database_access/database_helper.h"
 #include "sql_util/database_access/transaction_provider.h"
+#include "util/secrets/secrets_helper.h"
+#include "util/mail/mail_helper.h"
 
 namespace Tenancy {
 
@@ -26,8 +28,38 @@ struct TenantResources {
     // per-tenant SecretsHelper / MailHelper.
     std::optional<DatabaseHelper> databaseHelper;
     TransactionProviderPtr transactionProvider;
+    // Phase 4.1: the tenant's SecretsHelper, built from its OWN database plus the
+    // GLOBAL at-rest master key (every tenant's config_secrets.value is encrypted
+    // with the one HONUWARE_SECRET_KEY — §1.6 "stays global"). Null when tenancy
+    // was not wired to build it (a bare registry, or a consumer that doesn't set
+    // it), in which case EndpointAuthHelper::GetSecretsHelper() falls back to the
+    // deployment's global SecretsHelper.
+    Secrets::SecretsHelperPtr secretsHelper;
+    // Phase 4.3: the tenant's MailHelper (SMTP config read from the tenant's own
+    // secrets). Either injected (tests) or built once by EnsureServices(); null
+    // means EndpointAuthHelper::GetMailHelper() falls back to the global.
+    Mail::MailHelperPtr mailHelper;
 
     virtual ~TenantResources() = default;
+
+    // Phase 4.2/4.3: builds the per-tenant services that need a live transaction —
+    // the MailHelper here, plus whatever an app subclass adds in BuildAppServices
+    // (knottyyoga's Square client). Runs at most ONCE per tenant (std::call_once),
+    // caching on this shared object. EndpointAuthHelper::Initialize() calls it
+    // inside its own session-init transaction, which completes BEFORE any endpoint
+    // transaction — so this never re-enters the tenant's pool-of-1 connection. A
+    // helper that was already injected (tests) is left as-is.
+    void EnsureServices(Transaction& transaction);
+
+protected:
+    // Hook for app-derived resources to build app-specific per-tenant services that
+    // need a transaction (knottyyoga's Square client — Phase 4.2). Called by
+    // EnsureServices under the once-guard, inside the transaction, with
+    // secretsHelper available. Default: nothing.
+    virtual void BuildAppServices(Transaction& /*transaction*/) {}
+
+private:
+    std::once_flag servicesOnceFlag_;
 };
 
 using TenantResourcesPtr = std::shared_ptr<TenantResources>;
@@ -50,8 +82,27 @@ using TenantResourcesPtr = std::shared_ptr<TenantResources>;
 TransactionProviderPtr MakeTenantTransactionProvider(const TenantContext& context);
 
 // The default framework factory: builds a base TenantResources for a tenant
-// (its DatabaseHelper + pooled TransactionProvider).
+// (its DatabaseHelper + pooled TransactionProvider). Leaves secretsHelper null —
+// use the secretsAtRest overload to build per-tenant secrets.
 TenantResourcesPtr MakeDefaultTenantResources(const TenantContext& context);
+
+// Phase 4.1: same as above, but also builds the tenant's SecretsHelper over its
+// own database using the GLOBAL at-rest master key (`secretsAtRest`). This is the
+// factory the composition root wires in so per-request `GetSecretsHelper()` reads
+// the resolved tenant's config_secrets. (The app swaps in its own factory in
+// Phase 4.2 to also carry the per-tenant Square client.)
+TenantResourcesPtr MakeDefaultTenantResources(
+    const TenantContext& context, Secrets::SecretsAtRestPtr secretsAtRest);
+
+// Phase 4.2: fills the base per-tenant wiring (DatabaseHelper + pooled
+// TransactionProvider + SecretsHelper) into an ALREADY-CONSTRUCTED resources
+// object. An app factory constructs its own derived type (knottyyoga's
+// KnottyTenantResources) and calls this so it doesn't duplicate the base
+// construction. MakeDefaultTenantResources is written on top of it.
+void PopulateBaseTenantResources(
+    TenantResources& resources,
+    const TenantContext& context,
+    Secrets::SecretsAtRestPtr secretsAtRest);
 
 // Lazily builds and caches one TenantResources per tenant (keyed by tenantId).
 // Constructed with an app-supplied factory so the app can return a DERIVED type

@@ -63,6 +63,12 @@ void EndpointAuthHelper::Initialize() {
         GetTransactionProvider()->RunInTransaction(
             [&](Transaction& transaction) {
                 session_->InitializeFromFromCookie(transaction, cookieManager_);
+                // Phase 4.2/4.3: build the tenant's mail (+ app Square) services
+                // once, inside THIS transaction — it completes before any endpoint
+                // transaction, so it never re-enters the tenant's pool-of-1.
+                if (tenantResources_) {
+                    tenantResources_->EnsureServices(transaction);
+                }
             });
     }
     catch (...) {
@@ -99,10 +105,21 @@ DbSchema::DatabaseInfo EndpointAuthHelper::GetDatabaseInfo() const {
 }
 
 Secrets::SecretsHelperPtr EndpointAuthHelper::GetSecretsHelper() const {
+    // Phase 4.1: re-pointed to the resolved tenant's SecretsHelper; falls back to
+    // the deployment's global SecretsHelper when no tenant secrets are wired.
+    if (tenantResources_ && tenantResources_->secretsHelper) {
+        return tenantResources_->secretsHelper;
+    }
     return app_.GetSecretsHelper();
 }
 
 Mail::MailHelperPtr EndpointAuthHelper::GetMailHelper() const {
+    // Phase 4.3: re-pointed to the resolved tenant's MailHelper (built by
+    // EnsureServices during Initialize); falls back to the deployment's global
+    // MailHelper when no tenant mail is wired.
+    if (tenantResources_ && tenantResources_->mailHelper) {
+        return tenantResources_->mailHelper;
+    }
     return app_.GetMailHelper();
 }
 

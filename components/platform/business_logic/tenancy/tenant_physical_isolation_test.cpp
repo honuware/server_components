@@ -13,10 +13,14 @@
 
 #include <gtest/gtest.h>
 
+#include "business_logic/auth/auth_cookies.h"
 #include "sql_util/database_access/database_helper.h"
 #include "sql_util/database_access/transaction.h"
 #include "sql_util/database_common.h"
 #include "sql_util/schema/database_info.h"
+#include "util/secrets/secret_keys.h"
+#include "util/secrets/secrets_at_rest.h"
+#include "util/secrets/secrets_helper.h"
 #include "test/src/util/global_database_test_support.h"
 
 namespace Tenancy {
@@ -88,6 +92,66 @@ TEST(TenantPhysicalIsolationTest, SecondDatabaseHasIndependentSchemaAndSequence)
             "VALUES ('seq@b.test', 'Seq', 'B', 'hash') RETURNING id");
         EXPECT_FALSE(id.empty());
         EXPECT_GT(std::stoll(id), 0);
+    });
+}
+
+// Phase 4.1: the per-tenant SecretsHelper honors the physical boundary — a secret
+// written through tenant A's helper is invisible through tenant B's, because they
+// read different physical config_secrets tables. This is what makes per-tenant
+// secrets independent (§1.6). Both SecretsHelpers share the one GLOBAL at-rest key.
+TEST(TenantPhysicalIsolationTest, PerTenantSecretsHelpersAreIsolated) {
+    auto& support = GlobalDatabaseTestSupport::GetInstance();
+    const DbSchema::DatabaseInfo& info = support.GetDatabaseInfo();
+    DatabaseHelper dbA = support.GetDatabaseHelper();
+    DatabaseHelper dbB = support.EnsureNamedDatabase(kTenantBDatabase, info);
+
+    Secrets::SecretsAtRestPtr secretsAtRest =
+        Secrets::MakeSecretsAtRest(/*isProd=*/false);
+    Secrets::SecretsHelperPtr secretsA =
+        Secrets::MakeSecretsHelper(dbA, secretsAtRest);
+    Secrets::SecretsHelperPtr secretsB =
+        Secrets::MakeSecretsHelper(dbB, secretsAtRest);
+
+    dbA.RunInTransaction("secrets-iso-a", [&](Transaction& txA) {
+        secretsA->AddSecret(txA, "iso_secret_key", "a-only");
+        EXPECT_EQ(secretsA->LookupSecret(txA, "iso_secret_key"), "a-only");
+        dbB.RunInTransaction("secrets-iso-b", [&](Transaction& txB) {
+            // Different physical config_secrets → the key is absent on B.
+            EXPECT_EQ(secretsB->LookupSecret(txB, "iso_secret_key"), "");
+        });
+    });
+}
+
+// Phase 4.4: prod auth cookies derive their Domain from the resolving tenant's
+// own website_address secret (BuildAuthCookieProperties reads it through the
+// per-tenant SecretsHelper — Phase 4.1), so two tenants get two cookie domains.
+// This is what keeps a browser from mixing tenants' session cookies.
+TEST(TenantPhysicalIsolationTest, PerTenantCookieDomainDerivesFromTenantWebsite) {
+    auto& support = GlobalDatabaseTestSupport::GetInstance();
+    const DbSchema::DatabaseInfo& info = support.GetDatabaseInfo();
+    DatabaseHelper dbA = support.GetDatabaseHelper();
+    DatabaseHelper dbB = support.EnsureNamedDatabase(kTenantBDatabase, info);
+
+    Secrets::SecretsAtRestPtr secretsAtRest =
+        Secrets::MakeSecretsAtRest(/*isProd=*/false);
+    Secrets::SecretsHelperPtr secretsA =
+        Secrets::MakeSecretsHelper(dbA, secretsAtRest);
+    Secrets::SecretsHelperPtr secretsB =
+        Secrets::MakeSecretsHelper(dbB, secretsAtRest);
+
+    dbA.RunInTransaction("cookie-domain-a", [&](Transaction& txA) {
+        secretsA->AddSecret(txA, Secrets::kWebsiteAddress, "tenant-a.example");
+        Auth::CookieProperties propsA = Auth::BuildAuthCookieProperties(
+            txA, secretsA, /*isProd=*/true, /*httpOnly=*/true, /*maxAge=*/100);
+        EXPECT_EQ(propsA.domain, "tenant-a.example");
+        EXPECT_TRUE(propsA.secure);
+
+        dbB.RunInTransaction("cookie-domain-b", [&](Transaction& txB) {
+            secretsB->AddSecret(txB, Secrets::kWebsiteAddress, "tenant-b.example");
+            Auth::CookieProperties propsB = Auth::BuildAuthCookieProperties(
+                txB, secretsB, /*isProd=*/true, /*httpOnly=*/true, /*maxAge=*/100);
+            EXPECT_EQ(propsB.domain, "tenant-b.example");
+        });
     });
 }
 

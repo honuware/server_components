@@ -36,6 +36,18 @@ public:
                         hasResources &&
                         helper.GetTransactionProvider() ==
                             helper.GetTenantResources()->transactionProvider;
+                    // Phase 4.1: GetSecretsHelper() re-points to the tenant's.
+                    const bool secretsIsTenant =
+                        hasResources &&
+                        helper.GetTenantResources()->secretsHelper != nullptr &&
+                        helper.GetSecretsHelper() ==
+                            helper.GetTenantResources()->secretsHelper;
+                    // Phase 4.3: GetMailHelper() re-points to the tenant's.
+                    const bool mailIsTenant =
+                        hasResources &&
+                        helper.GetTenantResources()->mailHelper != nullptr &&
+                        helper.GetMailHelper() ==
+                            helper.GetTenantResources()->mailHelper;
                     Json::Value body(Json::JsonObject{
                         {"tenant_id", Json::Value(StringFromInt(ctx.tenantId))},
                         {"site_key", Json::Value(ctx.siteKey)},
@@ -44,6 +56,8 @@ public:
                          Json::Value(helper.GetDatabaseHelper().GetDatabaseName())},
                         {"has_resources", Json::Value(hasResources)},
                         {"provider_is_tenant", Json::Value(providerIsTenant)},
+                        {"secrets_is_tenant", Json::Value(secretsIsTenant)},
+                        {"mail_is_tenant", Json::Value(mailIsTenant)},
                     });
                     resp.code = 200;
                     resp.set_header("Content-Type", "application/json");
@@ -89,6 +103,10 @@ TEST(EndpointAuthHelperTenancyTest, DefaultFixedTenantResolvedAndRepointed) {
             // GetDatabaseHelper() / GetTransactionProvider() re-pointed to tenant.
             EXPECT_EQ(body["db_helper_name"].Get<std::string>(), testDbName);
             EXPECT_TRUE(body["provider_is_tenant"].Get<bool>());
+            // Phase 4.1/4.3: GetSecretsHelper()/GetMailHelper() re-pointed to the
+            // tenant's (the test doubles injected into the default fixed tenant).
+            EXPECT_TRUE(body["secrets_is_tenant"].Get<bool>());
+            EXPECT_TRUE(body["mail_is_tenant"].Get<bool>());
         });
 
     Auth::ServerConfig::Shutdown();
