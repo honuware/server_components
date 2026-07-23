@@ -21,6 +21,8 @@ target_sources(honuware_platform
     security_headers.cpp
     health.h
     health.cpp
+    site_info.h
+    site_info.cpp
     add_item.h
     add_item.cpp
     add_item_fetch_primary_key.h
@@ -69,6 +71,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     csrf_guard_test.cpp
     security_headers_test.cpp
     health_test.cpp
+    site_info_test.cpp
     web_app_tenancy_test.cpp
     endpoint_auth_helper_tenancy_test.cpp
     get_table_rows_test.cpp

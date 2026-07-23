@@ -17,6 +17,7 @@
 #include "endpoints/get_table_rows.h"
 #include "endpoints/health.h"
 #include "endpoints/resolve_fk_display.h"
+#include "endpoints/site_info.h"
 #include "endpoints/update_item.h"
 
 namespace Endpoints {
@@ -65,6 +66,7 @@ void RegisterFrameworkEndpoints() {
     anchor = reinterpret_cast<AnchorFunc>(&GetRowByValues);
     anchor = reinterpret_cast<AnchorFunc>(&GetTableRows);
     anchor = reinterpret_cast<AnchorFunc>(&GetHealth);
+    anchor = reinterpret_cast<AnchorFunc>(&GetSiteInfo);
     anchor = reinterpret_cast<AnchorFunc>(&UpdateItem);
 }
 

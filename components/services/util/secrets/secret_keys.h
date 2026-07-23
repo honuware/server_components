@@ -27,6 +27,13 @@ inline constexpr std::string_view kWebsiteApiLinkPrefix = "api_link_prefix";
 inline constexpr std::string_view kWebsiteActivationLink = "activation_link";
 inline constexpr std::string_view kWebsiteLoginLink = "login_link";
 
+// Tenancy plan Phase 7.1: per-tenant public branding. The SPA reads these via
+// GET /api/site_info to brand a shared bundle at runtime. Brand-free KEY name;
+// default VALUE is empty (the SPA falls back to its bundled logo asset), and each
+// tenant sets its own via the secrets admin. Not per-brand, so it lives here
+// (framework) rather than app_secret_keys.h.
+inline constexpr std::string_view kSiteLogoUrl = "site_logo_url";
+
 // Auth related keys
 inline constexpr std::string_view kAuthVerifyEmailTimeLimitInMicros = "auth_verify_email_time_limit_in_micros";
 
