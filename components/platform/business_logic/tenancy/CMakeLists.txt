@@ -6,6 +6,8 @@ target_sources(honuware_platform
     PRIVATE
     control_database.h
     control_database.cpp
+    provisioning.h
+    provisioning.cpp
     tenant_context.h
     tenant_header.h
     tenant_resolver.h
@@ -17,6 +19,7 @@ target_sources(honuware_platform
 target_sources(${HONUWARE_TESTS_TARGET}
     PUBLIC
     control_database_test.cpp
+    provisioning_test.cpp
     tenant_resolver_test.cpp
     tenant_resources_test.cpp
     tenant_physical_isolation_test.cpp
