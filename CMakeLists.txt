@@ -104,6 +104,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/honuware_layering.cmake)
 #   honuware_services   = util/secrets + util/mail + the config_secrets storage
 #                         table (the secrets service owns it); links data
 #   honuware_square     = util/square Square API client; links foundation only
+#   honuware_scheduler  = generic scheduled-jobs engine; links foundation only
 #   honuware_platform   = framework db_schema + table_helpers, business_logic
 #                         auth/images/migration engine, web core; links services
 #   honuware_testing    = reusable test harness (db support, matchers, endpoint
@@ -114,6 +115,7 @@ honuware_add_component(NAME honuware_foundation)
 honuware_add_component(NAME honuware_data)
 honuware_add_component(NAME honuware_services)
 honuware_add_component(NAME honuware_square)
+honuware_add_component(NAME honuware_scheduler)
 honuware_add_component(NAME honuware_platform)
 honuware_add_component(NAME honuware_testing)
 honuware_add_component(NAME honuware_tests)
@@ -154,6 +156,7 @@ add_subdirectory(components/foundation)
 add_subdirectory(components/data)
 add_subdirectory(components/services)
 add_subdirectory(components/square)
+add_subdirectory(components/scheduler)
 add_subdirectory(components/platform)
 add_subdirectory(components/testing)
 
@@ -180,8 +183,11 @@ target_link_libraries(honuware_testing PUBLIC
     ${PQXX_LIB}
     ${CROW_LIB})
 
-# honuware_tests (the component test-case bag) uses the harness pervasively.
-target_link_libraries(honuware_tests PUBLIC honuware_testing)
+# honuware_tests (the component test-case bag) uses the harness pervasively, plus
+# honuware_scheduler for the scheduler engine's own test cases (api_client /
+# job_scheduler / scheduler tests live in the bag but exercise the side-branch
+# engine target).
+target_link_libraries(honuware_tests PUBLIC honuware_testing honuware_scheduler)
 
 # Now that every component's link edges are declared, enforce the layer DAG
 # against the fully-resolved link graph. In consumed mode this validates only the

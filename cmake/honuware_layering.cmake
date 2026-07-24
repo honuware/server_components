@@ -52,13 +52,17 @@ cmake_policy(SET CMP0057 NEW)
 #   testing -> tests. honuware_square is a side branch on foundation ONLY (a
 #   generic Square client with no data/secrets coupling), so platform
 #   deliberately may NOT link it — only a consuming app's payment logic may.
+#   honuware_scheduler is likewise a foundation-only side branch (the generic
+#   scheduled-jobs engine): platform does not link it; only honuware_tests (its
+#   engine tests) and a consuming app's helper executable do.
 set(HONUWARE_ALLOW_honuware_foundation  "")
 set(HONUWARE_ALLOW_honuware_data        honuware_foundation)
 set(HONUWARE_ALLOW_honuware_services    honuware_data honuware_foundation)
 set(HONUWARE_ALLOW_honuware_square      honuware_foundation)
+set(HONUWARE_ALLOW_honuware_scheduler   honuware_foundation)
 set(HONUWARE_ALLOW_honuware_platform    honuware_services honuware_data honuware_foundation)
 set(HONUWARE_ALLOW_honuware_testing     honuware_platform honuware_services honuware_data honuware_square honuware_foundation)
-set(HONUWARE_ALLOW_honuware_tests       honuware_testing honuware_platform honuware_services honuware_data honuware_square honuware_foundation)
+set(HONUWARE_ALLOW_honuware_tests       honuware_testing honuware_platform honuware_services honuware_data honuware_square honuware_scheduler honuware_foundation)
 
 # The complete set of DAG-governed targets. Anything NOT in this list (Conan
 # imported targets, leaf executables) is ignored by the checks.
@@ -67,6 +71,7 @@ set(HONUWARE_COMPONENTS
     honuware_data
     honuware_services
     honuware_square
+    honuware_scheduler
     honuware_platform
     honuware_testing
     honuware_tests)
