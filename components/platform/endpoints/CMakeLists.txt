@@ -47,6 +47,43 @@ target_sources(honuware_platform
     resolve_fk_display.cpp
     db_schema.h
     db_schema.cpp
+    # Phase 0.2a (H8): account/user + photo endpoints extracted from the app.
+    account_activation.h
+    account_activation.cpp
+    verify.h
+    verify.cpp
+    login.h
+    login.cpp
+    logout.h
+    logout.cpp
+    me.h
+    me.cpp
+    remember.h
+    remember.cpp
+    get_user_info.h
+    get_user_info.cpp
+    set_user_info.h
+    set_user_info.cpp
+    update_user_password.h
+    update_user_password.cpp
+    has_photo.h
+    has_photo.cpp
+    upload_photo.h
+    upload_photo.cpp
+    upload_user_photo.h
+    upload_user_photo.cpp
+    delete_photo.h
+    delete_photo.cpp
+    get_photo.h
+    get_photo.cpp
+    # Phase 0.2b (H8): register + get_scaled_photo, with their framework seams
+    # (PostRegisterHook / PublicPhotoTables — app-configured via WebApp::SetService).
+    registration_hooks.h
+    register.h
+    register.cpp
+    public_photo_tables.h
+    get_scaled_photo.h
+    get_scaled_photo.cpp
     register_framework_endpoints.h
     register_framework_endpoints.cpp
 )
@@ -75,6 +112,21 @@ target_sources(${HONUWARE_TESTS_TARGET}
     web_app_tenancy_test.cpp
     endpoint_auth_helper_tenancy_test.cpp
     get_table_rows_test.cpp
+    # Phase 0.2a (H8): account/user + photo endpoint tests.
+    account_activation_test.cpp
+    verify_test.cpp
+    login_test.cpp
+    logout_test.cpp
+    me_test.cpp
+    remember_test.cpp
+    get_user_info_test.cpp
+    set_user_info_test.cpp
+    update_user_password_test.cpp
+    has_photo_test.cpp
+    upload_photo_test.cpp
+    upload_user_photo_test.cpp
+    delete_photo_test.cpp
+    get_photo_test.cpp
 )
 
 target_link_libraries(${HONUWARE_TESTS_TARGET} PUBLIC ${GTEST_LIB})

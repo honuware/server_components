@@ -19,6 +19,24 @@
 #include "endpoints/resolve_fk_display.h"
 #include "endpoints/site_info.h"
 #include "endpoints/update_item.h"
+// Phase 0.2a (H8): account/user + photo endpoints extracted from the app.
+#include "endpoints/account_activation.h"
+#include "endpoints/verify.h"
+#include "endpoints/login.h"
+#include "endpoints/logout.h"
+#include "endpoints/me.h"
+#include "endpoints/remember.h"
+#include "endpoints/get_user_info.h"
+#include "endpoints/set_user_info.h"
+#include "endpoints/update_user_password.h"
+#include "endpoints/has_photo.h"
+#include "endpoints/upload_photo.h"
+#include "endpoints/upload_user_photo.h"
+#include "endpoints/delete_photo.h"
+#include "endpoints/get_photo.h"
+// Phase 0.2b (H8): register + get_scaled_photo (with framework seams).
+#include "endpoints/register.h"
+#include "endpoints/get_scaled_photo.h"
 
 namespace Endpoints {
 
@@ -68,6 +86,26 @@ void RegisterFrameworkEndpoints() {
     anchor = reinterpret_cast<AnchorFunc>(&GetHealth);
     anchor = reinterpret_cast<AnchorFunc>(&GetSiteInfo);
     anchor = reinterpret_cast<AnchorFunc>(&UpdateItem);
+
+    // Phase 0.2a (H8): account/user + photo endpoints extracted from the app.
+    anchor = reinterpret_cast<AnchorFunc>(&AccountActivation);
+    anchor = reinterpret_cast<AnchorFunc>(&Verify);
+    anchor = reinterpret_cast<AnchorFunc>(&Login);
+    anchor = reinterpret_cast<AnchorFunc>(&Logout);
+    anchor = reinterpret_cast<AnchorFunc>(&Me);
+    anchor = reinterpret_cast<AnchorFunc>(&Remember);
+    anchor = reinterpret_cast<AnchorFunc>(&GetUserInfo);
+    anchor = reinterpret_cast<AnchorFunc>(&SetUserInfo);
+    anchor = reinterpret_cast<AnchorFunc>(&UpdateUserPassword);
+    anchor = reinterpret_cast<AnchorFunc>(&GetHasPhoto);
+    anchor = reinterpret_cast<AnchorFunc>(&PostUploadPhoto);
+    anchor = reinterpret_cast<AnchorFunc>(&PostUploadUserPhoto);
+    anchor = reinterpret_cast<AnchorFunc>(&DeletePhoto);
+    anchor = reinterpret_cast<AnchorFunc>(&GetPhoto);
+
+    // Phase 0.2b (H8): register + get_scaled_photo.
+    anchor = reinterpret_cast<AnchorFunc>(&Register);
+    anchor = reinterpret_cast<AnchorFunc>(&GetScaledPhoto);
 }
 
 }  // namespace Endpoints
