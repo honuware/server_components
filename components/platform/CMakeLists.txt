@@ -9,6 +9,17 @@
 # whole-directory moves; their payment/scheduling/skills siblings are app and
 # stay in src/business_logic/).
 target_include_directories(honuware_platform PUBLIC ${CMAKE_CURRENT_LIST_DIR})
+
+# H2 extraction: the framework halves of create_database (framework table DDL +
+# framework baseline seed) a consuming app composes with its own app halves.
+target_sources(honuware_platform PRIVATE
+    business_logic/create_framework_tables.h
+    business_logic/create_framework_tables.cpp
+)
+target_sources(${HONUWARE_TESTS_TARGET} PUBLIC
+    business_logic/create_framework_tables_test.cpp
+)
+
 add_subdirectory(business_logic/auth)
 add_subdirectory(business_logic/images)
 add_subdirectory(business_logic/migration)

@@ -118,6 +118,54 @@ FetchContent_MakeAvailable(honuware)
 For local co-development against a working tree, override with
 `-DFETCHCONTENT_SOURCE_DIR_HONUWARE=/path/to/server_components`.
 
+## New-consumer checklist
+
+Standing up a new application on these components (distilled from the two
+consumers built so far). Each step names the seam it plugs into:
+
+1. **Pin + link.** FetchContent-pin a full SHA (above). Link `honuware_platform`
+   for the framework; add `honuware_square` only in your payment code (it is a
+   side branch — the platform may not link it), `honuware_scheduler` if you run
+   scheduled jobs, and `honuware_testing` / compose `honuware_tests` into your
+   test exe.
+2. **Compose the schema.** Build one `DbSchema::DatabaseInfo` = the framework
+   tables **plus** your app tables. The framework never calls your
+   `MakeDatabaseInfo`; your app composition root owns it.
+3. **Bootstrap the database.** In your `create_database`, call
+   `CreateFrameworkTables(transaction, databaseInfo)` then
+   `PopulateFrameworkTables(transaction, databaseHelper, databaseInfo)` (the
+   framework half — 32 tables + their indexes, and the framework seed: base
+   Administrator/User roles, `admin_portal`/`staff_access` permissions + grants,
+   framework `config_secrets` defaults, `permission_implications` allow-list,
+   `people` photo support, security redactions, and the framework tables' admin
+   metadata). Then create + seed **only your app tables**. Because the framework
+   seeds its roles/permissions **first**, their ids sit ahead of yours — so
+   reference framework (and your own) roles/permissions **by name**, never by a
+   hard-coded id. Framework enum metadata (`admin_enums` / `admin_column_enums`)
+   is *not* seeded for you; seed it app-side if your framework tables expose
+   admin enum columns. Provision a scheduler service account app-side via
+   `Auth::EnsureSchedulerServiceAccount` if you run the scheduler.
+4. **Register + anchor endpoints.** Call `RegisterFrameworkEndpoints()` for the
+   generic auth / account / photo / CRUD / health routes, then register your app
+   endpoints. Endpoints self-register at file scope, so **anchor** each app
+   endpoint translation unit through the volatile-anchor pattern — a plain unused
+   pointer dead-strips at `-O2` and every route 404s in Release.
+5. **Wire the framework seams.** Per-`WebApp` via `WebApp::SetService<T>()`:
+   `PostRegisterHook` (side effects after `/api/register`) and
+   `PublicPhotoTables` (the anonymous-read allow-list for `get_scaled_photo`).
+   Unregistered ⇒ safe default (no hook / nothing public).
+6. **Secrets.** Framework secret defaults come from `Secrets::Values`; layer your
+   app/brand defaults on top. At-rest `config_secrets` need `HONUWARE_SECRET_KEY`
+   (non-prod falls back to a fixed dev key).
+7. **Tests.** Your test `main` calls `GlobalDatabaseTestSupport::Initialize(yourDatabaseInfo)`
+   with **your own** test-database name, plus `RegisterAllEndpoints()` (anchors
+   your app endpoint TUs) and your `RegisterAppSecretDefaults`. Note the harness
+   builds the schema from the `DatabaseInfo` but does **not** run your
+   `create_database` seed — gate the seed itself with a live `--recreate_database`.
+8. **Co-dev loop.** Mirror `docker/` here + the app's docker client; build against
+   a local honuware tree with `-DFETCHCONTENT_SOURCE_DIR_HONUWARE`, gate both
+   suites with a test-count floor, then re-pin the SHA.
+
 ## License
 
 Apache-2.0. See `LICENSE` and `NOTICE`.
