@@ -99,4 +99,39 @@ TEST(CreateFrameworkTablesTest, PopulateFrameworkTablesSeedsBaseline) {
         });
 }
 
+// Regression: the people timestamp columns are seeded so the admin CRUD editor
+// renders them well — email_verified_at / created_at / updated_at as `date` columns
+// (so the client formats the microsecond value) with friendly list-view headers.
+// email_verified_at was previously missed entirely, surfacing as a raw microsecond
+// integer under a raw `email_verified_at` header.
+TEST(CreateFrameworkTablesTest, PopulateFrameworkTablesSeedsTimestampDisplayMetadata) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction(
+        "PopulateFrameworkTablesSeedsTimestampDisplayMetadata",
+        [&](Transaction& transaction) {
+            DbSchema::DatabaseInfo info("framework_test");
+            PopulateFrameworkTables(transaction, testDb.GetDatabaseHelper(), info);
+
+            auto htmlInputType = [&](std::string_view column) {
+                return transaction.RunSqlStatementReturningOneValue(
+                    "SELECT html_input_type FROM admin_column_data_info "
+                    "WHERE table_name = $1 AND column_name = $2",
+                    std::string(DbSchema::kPeopleTable), std::string(column));
+            };
+            EXPECT_EQ(htmlInputType(DbSchema::kPeopleEmailVerifiedAt), "date");
+            EXPECT_EQ(htmlInputType(DbSchema::kPeopleCreatedAt), "date");
+            EXPECT_EQ(htmlInputType(DbSchema::kPeopleUpdatedAt), "date");
+
+            auto friendlyName = [&](std::string_view column) {
+                return transaction.RunSqlStatementReturningOneValue(
+                    "SELECT friendly_name FROM admin_column_friendly_names "
+                    "WHERE table_name = $1 AND column_name = $2",
+                    std::string(DbSchema::kPeopleTable), std::string(column));
+            };
+            EXPECT_EQ(friendlyName(DbSchema::kPeopleEmailVerifiedAt), "Email Verified");
+            EXPECT_EQ(friendlyName(DbSchema::kPeopleCreatedAt), "Created");
+            EXPECT_EQ(friendlyName(DbSchema::kPeopleUpdatedAt), "Updated");
+        });
+}
+
 }  // namespace

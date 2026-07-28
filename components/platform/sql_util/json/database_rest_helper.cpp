@@ -1,5 +1,9 @@
 #include "database_rest_helper.h"
 
+#include <map>
+#include <set>
+#include <utility>
+
 #include "util/json_util.h"
 #include "util/json_value.h"
 #include "sql_util/database_access/database_util.h"
@@ -11,6 +15,7 @@
 #include "sql_util/table_helpers/admin_column_data_info.h"
 #include "sql_util/table_helpers/admin_enum_values.h"
 #include "sql_util/table_helpers/admin_column_enums.h"
+#include "db_schema/admin_column_friendly_names.h"
 #include "db_schema/admin_column_data_info.h"
 #include "db_schema/admin_column_enums.h"
 #include "db_schema/admin_enum_values.h"
@@ -56,26 +61,77 @@ namespace {
         return keyValueTable;
     }
 
-    Json::Value GenerateColumnMetadata(
+    // Batch-loaded admin column metadata. get_db_schema used to run several DB
+    // queries PER COLUMN (friendly name + data info + an enum-binding check) across
+    // every visible table, so the admin portal's first load took ~10s on a modest
+    // schema. Loading each admin_* metadata table ONCE into these maps and reading
+    // them from memory collapses that to a handful of queries total.
+    struct AdminMetadataCache {
+        std::map<std::pair<std::string, std::string>, std::string> columnFriendlyNames;
+        std::map<std::pair<std::string, std::string>, KeyValueTable> columnDataInfo;
+        std::map<std::string, KeyValueTable> columnEnumsByDataInfoId;
+        std::map<std::string, KeyValueTableArray> enumValuesByEnumId;
+    };
+
+    AdminMetadataCache LoadAdminMetadataCache(
         Transaction& transaction,
-        const DbSchema::ColumnInfo& columnInfo,
-        std::string_view tableName,
         TableHelpers::AdminColumnFriendlyNames& adminColumnFriendlyNames,
         TableHelpers::AdminColumnDataInfo& adminColumnDataInfo,
         TableHelpers::AdminEnumValues& adminEnumValues,
         TableHelpers::AdminColumnEnums& adminColumnEnums) {
+        AdminMetadataCache cache;
+        for (const KeyValueTable& row :
+             adminColumnFriendlyNames.GetAdminColumnFriendlyNames(transaction)) {
+            cache.columnFriendlyNames[{
+                row.at(static_cast<std::string>(DbSchema::kAdminColumnFriendlyNamesTableName)),
+                row.at(static_cast<std::string>(DbSchema::kAdminColumnFriendlyNamesColumnName))}] =
+                row.at(static_cast<std::string>(DbSchema::kAdminColumnFriendlyNamesFriendlyName));
+        }
+        for (const KeyValueTable& row :
+             adminColumnDataInfo.GetAdminColumnDataInfos(transaction)) {
+            cache.columnDataInfo[{
+                row.at(static_cast<std::string>(DbSchema::kAdminColumnDataInfoTableName)),
+                row.at(static_cast<std::string>(DbSchema::kAdminColumnDataInfoColumnName))}] = row;
+        }
+        // Enum bindings key off admin_column_data_info.id; collect the referenced
+        // enum ids so we fetch values only for enums actually in use (usually none —
+        // the framework seeds no enums).
+        std::set<std::string> enumIdsInUse;
+        for (const KeyValueTable& row :
+             adminColumnEnums.GetAdminColumnEnums(transaction)) {
+            const std::string dataInfoId =
+                row.at(static_cast<std::string>(DbSchema::kAdminColumnEnumsAdminColumnDataInfoId));
+            const std::string enumId =
+                row.at(static_cast<std::string>(DbSchema::kAdminColumnEnumsAdminEnumId));
+            cache.columnEnumsByDataInfoId[dataInfoId] = row;
+            enumIdsInUse.insert(enumId);
+        }
+        for (const std::string& enumId : enumIdsInUse) {
+            cache.enumValuesByEnumId[enumId] =
+                adminEnumValues.GetAdminEnumValuesByEnumId(transaction, std::stoll(enumId));
+        }
+        return cache;
+    }
+
+    Json::Value GenerateColumnMetadata(
+        const DbSchema::ColumnInfo& columnInfo,
+        std::string_view tableName,
+        const AdminMetadataCache& cache) {
         Json::Value column;
         column["column_name"] = columnInfo.GetColumnName();
         column["type"] = columnInfo.GetSqlType();
         column["primary_key"] = Json::StringFromBool(columnInfo.IsPrimaryKey());
         column["unique"] = Json::StringFromBool(columnInfo.IsUnique());
         column["nullable"] = Json::StringFromBool(columnInfo.IsNullable());
-        column["column_friendly_name"] =
-            adminColumnFriendlyNames.GetAdminColumnFriendlyName(
-                transaction, tableName, columnInfo.GetColumnName());
-        KeyValueTable keyValueTable;
-        if(adminColumnDataInfo.GetAdminColumnDataInfo(
-            transaction, tableName, columnInfo.GetColumnName(), keyValueTable)) {
+        const std::pair<std::string, std::string> key{
+            std::string(tableName), std::string(columnInfo.GetColumnName())};
+        auto friendlyIt = cache.columnFriendlyNames.find(key);
+        column["column_friendly_name"] = friendlyIt != cache.columnFriendlyNames.end()
+            ? friendlyIt->second
+            : std::string();
+        auto dataInfoIt = cache.columnDataInfo.find(key);
+        if (dataInfoIt != cache.columnDataInfo.end()) {
+            const KeyValueTable& keyValueTable = dataInfoIt->second;
             column["label"] = keyValueTable.at(
                 static_cast<std::string>(DbSchema::kAdminColumnDataInfoLabel));
             column["hint"] = keyValueTable.at(
@@ -101,21 +157,21 @@ namespace {
                 static_cast<std::string>(DbSchema::kAdminColumnDataInfoReadonly));
             column["readonly"] = readonlyVal.empty() ? "f" : readonlyVal;
 
-            // Check for enum binding
-            int64_t columnDataInfoId = std::stoll(keyValueTable.at(
-                static_cast<std::string>(DbSchema::kAdminColumnDataInfoColumnDataInfoId)));
-            KeyValueTable enumBinding;
-            if (adminColumnEnums.GetAdminColumnEnumByColumnDataInfoId(
-                    transaction, columnDataInfoId, enumBinding)) {
+            // Enum binding (looked up in memory, keyed by admin_column_data_info.id).
+            const std::string columnDataInfoId = keyValueTable.at(
+                static_cast<std::string>(DbSchema::kAdminColumnDataInfoColumnDataInfoId));
+            auto enumIt = cache.columnEnumsByDataInfoId.find(columnDataInfoId);
+            if (enumIt != cache.columnEnumsByDataInfoId.end()) {
                 column["html_input_type"] = "enum";
-                int64_t enumId = std::stoll(enumBinding.at(
-                    static_cast<std::string>(DbSchema::kAdminColumnEnumsAdminEnumId)));
-                KeyValueTableArray enumValues =
-                    adminEnumValues.GetAdminEnumValuesByEnumId(transaction, enumId);
+                const std::string enumId = enumIt->second.at(
+                    static_cast<std::string>(DbSchema::kAdminColumnEnumsAdminEnumId));
                 Json::JsonArray enumValuesArray;
-                for (const auto& enumValue : enumValues) {
-                    enumValuesArray.push_back(Json::Value(
-                        enumValue.at(static_cast<std::string>(DbSchema::kAdminEnumValuesName))));
+                auto valuesIt = cache.enumValuesByEnumId.find(enumId);
+                if (valuesIt != cache.enumValuesByEnumId.end()) {
+                    for (const auto& enumValue : valuesIt->second) {
+                        enumValuesArray.push_back(Json::Value(
+                            enumValue.at(static_cast<std::string>(DbSchema::kAdminEnumValuesName))));
+                    }
                 }
                 column["enum_values"] = Json::Value(std::move(enumValuesArray));
             }
@@ -136,23 +192,13 @@ namespace {
     }
 
     Json::Value GenerateColumnArrayMetadata(
-        Transaction& transaction,
         const DbSchema::TableInfo& tableInfo,
-        TableHelpers::AdminColumnFriendlyNames& adminColumnFriendlyNames,
-        TableHelpers::AdminColumnDataInfo& adminColumnDataInfo,
-        TableHelpers::AdminEnumValues& adminEnumValues,
-        TableHelpers::AdminColumnEnums& adminColumnEnums) {
+        const AdminMetadataCache& cache) {
         Json::Value columnArray;
         std::vector<Json::Value> columnList;
         for (const DbSchema::ColumnInfo& columnInfo : tableInfo.GetColumns()) {
             columnList.push_back(GenerateColumnMetadata(
-                transaction,
-                columnInfo,
-                tableInfo.GetTableName(),
-                adminColumnFriendlyNames,
-                adminColumnDataInfo,
-                adminEnumValues,
-                adminColumnEnums));
+                columnInfo, tableInfo.GetTableName(), cache));
         }
         columnArray = std::move(columnList);
         return columnArray;
@@ -198,10 +244,7 @@ namespace {
         Transaction& transaction,
         const DbSchema::DatabaseInfo& databaseInfo,
         TableHelpers::AdminTableFriendlyNames& adminTableFriendlyNames,
-        TableHelpers::AdminColumnFriendlyNames& adminColumnFriendlyNames,
-        TableHelpers::AdminColumnDataInfo& adminColumnDataInfo,
-        TableHelpers::AdminEnumValues& adminEnumValues,
-        TableHelpers::AdminColumnEnums& adminColumnEnums,
+        const AdminMetadataCache& cache,
         std::string_view tableName,
         const StringSet& photoSupportedTables) {
         Json::Value table;
@@ -222,9 +265,7 @@ namespace {
         else {
             tableFriendlyName = tableInfo.GetTableName();
         }
-        table["columns"] = GenerateColumnArrayMetadata(
-            transaction, tableInfo, adminColumnFriendlyNames, adminColumnDataInfo,
-            adminEnumValues, adminColumnEnums);
+        table["columns"] = GenerateColumnArrayMetadata(tableInfo, cache);
         table["description"] = description;
         table["foreign_keys"] = GenerateForeignKeyArrayMetadata(
             tableInfo, foreignKeyManager);
@@ -241,10 +282,7 @@ namespace {
         Transaction& transaction,
         const DbSchema::DatabaseInfo& databaseInfo,
         TableHelpers::AdminTableFriendlyNames& adminTableFriendlyNames,
-        TableHelpers::AdminColumnFriendlyNames& adminColumnFriendlyNames,
-        TableHelpers::AdminColumnDataInfo& adminColumnDataInfo,
-        TableHelpers::AdminEnumValues& adminEnumValues,
-        TableHelpers::AdminColumnEnums& adminColumnEnums,
+        const AdminMetadataCache& cache,
         const StringSet& allowedTablesStringSet,
         const StringSet& photoSupportedTables) {
         Json::Value tableArray;
@@ -255,10 +293,7 @@ namespace {
                     transaction,
                     databaseInfo,
                     adminTableFriendlyNames,
-                    adminColumnFriendlyNames,
-                    adminColumnDataInfo,
-                    adminEnumValues,
-                    adminColumnEnums,
+                    cache,
                     tableName,
                     photoSupportedTables));
             }
@@ -626,14 +661,17 @@ Json::Value DatabaseRESTHelper::DatabaseMetadata(
         nestedTables, stringSetAllowedTables);
     databaseMetadata["root_tables"] = GenerateRootTablesArrayMetadata(
         rootTables, stringSetAllowedTables);
+    AdminMetadataCache adminMetadataCache = LoadAdminMetadataCache(
+        transaction,
+        adminColumnFriendlyNames,
+        adminColumnDataInfo,
+        adminEnumValues,
+        adminColumnEnums);
     databaseMetadata["tables"] = GenerateTableArrayMetadata(
         transaction,
         databaseInfo,
         adminTableFriendlyNames,
-        adminColumnFriendlyNames,
-        adminColumnDataInfo,
-        adminEnumValues,
-        adminColumnEnums,
+        adminMetadataCache,
         stringSetAllowedTables,
         photoSupportedTables);
 

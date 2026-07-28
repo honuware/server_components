@@ -272,6 +272,7 @@ void PopulateFrameworkTables(
         AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleLastName, "Last Name", "Last name of the person", "text", "true");
         AddRow(DbSchema::kPeopleTable, DbSchema::kPeoplePasswordHash, "Password Hash", "Hashed password for authentication", "text", "true");
         AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleMustChangePassword, "Must Change Password", "Requires password change on next login", "bool", "true");
+        AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleEmailVerifiedAt, "Email Verified", "When the person verified their email address", "date", "false", "", "true");
         AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleCreatedAt, "Created", "When this person was created", "date", "false", "", "true");
         AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleUpdatedAt, "Updated", "When this person was last updated", "date", "false", "", "true");
         AddRow(DbSchema::kPermissionsTable, DbSchema::kPermissionsName, "Name", "Permission name", "text", "true");
@@ -303,6 +304,9 @@ void PopulateFrameworkTables(
         AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleLastName, "Last Name");
         AddRow(DbSchema::kPeopleTable, DbSchema::kPeoplePasswordHash, "Password Hash");
         AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleMustChangePassword, "Must Change Password");
+        AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleEmailVerifiedAt, "Email Verified");
+        AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleCreatedAt, "Created");
+        AddRow(DbSchema::kPeopleTable, DbSchema::kPeopleUpdatedAt, "Updated");
         AddRow(DbSchema::kPermissionsTable, DbSchema::kPermissionsId, "ID");
         AddRow(DbSchema::kPermissionsTable, DbSchema::kPermissionsName, "Permission Name");
         AddRow(DbSchema::kPermissionsTable, DbSchema::kPermissionsDescription, "Description");
