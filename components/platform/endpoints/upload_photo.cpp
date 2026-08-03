@@ -85,10 +85,13 @@ Json::Value PostUploadPhoto(
 
     Json::Value result;
     tp->RunInTransaction([&](Transaction& transaction) {
-        // Admin required for general table uploads
-        if (!session.IsAdmin(transaction)) {
-            resp = ErrorResponse::NotAuthorized(
-                "Admin access required to upload photos");
+        // Whoever administers the table may photograph its rows: an admin, or a
+        // non-admin whose permissions grant this table through
+        // admin_table_permissions. (Previously admin-only, which locked
+        // permission-scoped authors — e.g. author_blog — out of their own
+        // content's images.)
+        if (!endpointAuthHelper.RequireTableWriteAccess(
+                transaction, tableName, resp)) {
             return;
         }
 

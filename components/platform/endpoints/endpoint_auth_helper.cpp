@@ -149,6 +149,49 @@ const std::string& EndpointAuthHelper::GetDatabaseName() const {
     return app_.GetDatabaseName();
 }
 
+StringArray EndpointAuthHelper::GetPermissionGrantedTables(
+    Transaction& transaction) {
+    StringArray tables;
+    if (!session_->IsLoggedIn()) {
+        return tables;
+    }
+
+    // Collect every permission id the user holds through their roles...
+    int64_t personId = session_->GetPersonId();
+    TableHelpers::RoleAssignments ra(GetDatabaseHelper());
+    KeyValueTableArray assignments = ra.GetRoleAssignmentsForPerson(
+        transaction, personId);
+
+    TableHelpers::RolePermissions rp(GetDatabaseHelper());
+    std::set<int64_t> userPermissionIds;
+    for (const auto& kv : assignments) {
+        int64_t roleId = std::stoll(
+            kv.at(std::string(DbSchema::kRoleAssignmentsRoleId)));
+        KeyValueTableArray rpRows = rp.GetRolePermissionsForRole(
+            transaction, roleId);
+        for (const auto& rpKv : rpRows) {
+            int64_t permId = std::stoll(
+                rpKv.at(std::string(DbSchema::kRolePermissionsPermissionId)));
+            userPermissionIds.insert(permId);
+        }
+    }
+    if (userPermissionIds.empty()) {
+        return tables;
+    }
+
+    // ...then the tables each of those permissions unlocks.
+    std::set<std::string> tableSet;
+    TableHelpers::AdminTablePermissions atp(GetDatabaseHelper());
+    for (int64_t permId : userPermissionIds) {
+        for (const auto& t : atp.GetTablesForPermissionId(transaction, permId)) {
+            if (tableSet.insert(t).second) {
+                tables.push_back(t);
+            }
+        }
+    }
+    return tables;
+}
+
 StringArray EndpointAuthHelper::GetAllowedTables(Transaction& transaction) {
     StringArray tables = app_.GetAllowedTables(transaction);
 
@@ -173,37 +216,9 @@ StringArray EndpointAuthHelper::GetAllowedTables(Transaction& transaction) {
                 TableHelpers::AdminNestedTables adminNested(GetDatabaseHelper());
                 addTablesIfNew(adminNested.GetAdminNestedTables(transaction));
             } else {
-                // Non-admin users: check admin_table_permissions for
-                // tables granted through the user's permissions
-                int64_t personId = session_->GetPersonId();
-                TableHelpers::RoleAssignments ra(GetDatabaseHelper());
-                KeyValueTableArray assignments = ra.GetRoleAssignmentsForPerson(
-                    transaction, personId);
-
-                // Collect all permission IDs the user has
-                TableHelpers::RolePermissions rp(GetDatabaseHelper());
-                std::set<int64_t> userPermissionIds;
-                for (const auto& kv : assignments) {
-                    int64_t roleId = std::stoll(
-                        kv.at(std::string(DbSchema::kRoleAssignmentsRoleId)));
-                    KeyValueTableArray rpRows = rp.GetRolePermissionsForRole(
-                        transaction, roleId);
-                    for (const auto& rpKv : rpRows) {
-                        int64_t permId = std::stoll(
-                            rpKv.at(std::string(DbSchema::kRolePermissionsPermissionId)));
-                        userPermissionIds.insert(permId);
-                    }
-                }
-
-                // For each permission, find tables that require it
-                if (!userPermissionIds.empty()) {
-                    TableHelpers::AdminTablePermissions atp(GetDatabaseHelper());
-                    for (int64_t permId : userPermissionIds) {
-                        StringArray permTables = atp.GetTablesForPermissionId(
-                            transaction, permId);
-                        addTablesIfNew(permTables);
-                    }
-                }
+                // Non-admin users: tables granted through their permissions
+                // (admin_table_permissions), on top of the app's base list.
+                addTablesIfNew(GetPermissionGrantedTables(transaction));
             }
         }
     } catch (const std::exception& e) {
@@ -245,6 +260,37 @@ bool EndpointAuthHelper::RequirePermission(
         return false;
     }
     return true;
+}
+
+bool EndpointAuthHelper::RequireTableWriteAccess(
+    Transaction& transaction,
+    std::string_view tableName,
+    crow::response& resp) {
+    if (!session_->IsLoggedIn()) {
+        resp = ErrorResponse::NotAuthenticated("Login required");
+        return false;
+    }
+    try {
+        if (session_->IsAdmin(transaction)) {
+            return true;
+        }
+        // Deliberately NOT IsTableAllowed: that unions the app's base public
+        // read list with the grants, so it would let any logged-in user write
+        // to every public table. Only the grants confer write access.
+        for (const auto& t : GetPermissionGrantedTables(transaction)) {
+            if (t == tableName) {
+                return true;
+            }
+        }
+    } catch (const std::exception&) {
+        // Fail closed without leaking the underlying error, as
+        // RequirePermission does.
+        resp = ErrorResponse::NotAuthorized(
+            "Not authorized to modify this table");
+        return false;
+    }
+    resp = ErrorResponse::NotAuthorized("Not authorized to modify this table");
+    return false;
 }
 
 const TableHelpers::ColumnRedactionSet&

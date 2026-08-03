@@ -13,8 +13,11 @@
 #include "business_logic/auth/server_config.h"
 #include "business_logic/auth/cookie_manager_test_util.h"
 #include "db_schema/people.h"
+#include "db_schema/permissions.h"
 #include "db_schema/roles.h"
 #include "business_logic/images/image_helper.h"
+#include "sql_util/table_helpers/admin_table_permissions.h"
+#include "sql_util/table_helpers/permissions.h"
 #include "util/secrets/secret_keys.h"
 #include "util/secrets/secrets_helper_test_util.h"
 #include "sql_util/table_helpers/photo_support_tables.h"
@@ -204,6 +207,51 @@ TEST(DeletePhotoTest, DeletePhotoNotAdmin) {
         endpointHelper.GetWebApp().GetApp().handle_full(req, resp);
 
         EXPECT_EQ(resp.code, 403);
+    });
+
+    Auth::ServerConfig::Shutdown();
+}
+
+// Symmetric with upload: a non-admin who administers the table via
+// admin_table_permissions may remove its photos.
+TEST(DeletePhotoTest, DeletePhotoNonAdminWithTableGrant) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("DeletePhotoGranted", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+
+        int64_t personId = 0;
+        SetupLoggedInUser(transaction, testDb, endpointHelper, personId);
+        endpointHelper.GrantPermissionToPerson(
+            transaction, personId, "author_things");
+
+        TableHelpers::Permissions permissions(testDb.GetDatabaseHelper());
+        KeyValueTable permissionRow =
+            permissions.GetPermission(transaction, "author_things");
+        ASSERT_FALSE(permissionRow.empty());
+        TableHelpers::AdminTablePermissions atp(testDb.GetDatabaseHelper());
+        atp.AddAdminTablePermission(
+            transaction, "products",
+            std::stoll(permissionRow.at(std::string(DbSchema::kPermissionsId))));
+
+        TableHelpers::PhotoSupportTables pst(testDb.GetDatabaseHelper());
+        pst.AddPhotoSupportTable(transaction, "products");
+
+        Images::ImageHelper imageHelper(testDb.GetDatabaseHelper());
+        auto jpeg = MakeTestJpeg(32, 32);
+        imageHelper.UploadAndAssociatePhoto(
+            transaction, "products", 1, jpeg, "jpeg");
+
+        crow::request req;
+        req.method = crow::HTTPMethod::Post;
+        req.url = "/api/delete_photo/products/1";
+        crow::response resp;
+        endpointHelper.GetWebApp().GetApp().handle_full(req, resp);
+
+        EXPECT_EQ(resp.code, 200) << resp.body;
+        EXPECT_FALSE(imageHelper.HasPhoto(transaction, "products", 1));
     });
 
     Auth::ServerConfig::Shutdown();

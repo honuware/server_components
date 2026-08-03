@@ -83,7 +83,29 @@ public:
         std::string_view permissionName,
         crow::response& resp);
 
+    // Gate for endpoints that WRITE table-scoped data on behalf of whoever
+    // administers that table — currently the generic photo upload/delete
+    // endpoints. True for an admin, and for a non-admin whose permissions grant
+    // the table through `admin_table_permissions`. 401 when not logged in, 403
+    // otherwise; the caller bails on false.
+    //
+    // NOT the same question as IsTableAllowed. That one answers "may this
+    // caller READ this table", and its allow-list is the union of the app's
+    // BASE PUBLIC tables and the per-permission grants. Using it here would let
+    // any logged-in user write to every base-allowed table. This checks the
+    // grants half only.
+    bool RequireTableWriteAccess(
+        Transaction& transaction,
+        std::string_view tableName,
+        crow::response& resp);
+
 private:
+    // Tables granted to the current user through admin_table_permissions
+    // (empty for an anonymous caller). Admin-ness is NOT considered here —
+    // callers handle that themselves, because "admin" means all admin tables
+    // rather than a grant list.
+    StringArray GetPermissionGrantedTables(Transaction& transaction);
+
     // Resolves the request's tenant (from the resolver on WebApp + the
     // X-Honuware-Site header), builds/caches its resources, and (re)binds the
     // session to the effective database. Called at the top of Initialize().

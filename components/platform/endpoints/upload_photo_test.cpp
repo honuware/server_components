@@ -13,7 +13,10 @@
 #include "business_logic/auth/server_config.h"
 #include "business_logic/auth/cookie_manager_test_util.h"
 #include "db_schema/people.h"
+#include "db_schema/permissions.h"
 #include "db_schema/roles.h"
+#include "sql_util/table_helpers/admin_table_permissions.h"
+#include "sql_util/table_helpers/permissions.h"
 #include "util/secrets/secret_keys.h"
 #include "util/secrets/secrets_helper_test_util.h"
 #include "sql_util/table_helpers/photo_support_tables.h"
@@ -79,6 +82,23 @@ void SetupAdminUser(
     cp.path = "/";
     cp.sameSite = Auth::CookieSameSitePolicy::None;
     cookieMgr->SetCookie("session_token", sessionToken, cp);
+}
+
+// Maps a table to an existing permission in admin_table_permissions — the
+// "whoever administers this table" grant that photo writes now honor.
+// GrantPermissionToPerson has already created the named permission.
+void GrantTableToPermission(
+    Transaction& transaction,
+    TestDatabaseUtil& testDb,
+    std::string_view tableName,
+    std::string_view permissionName) {
+    TableHelpers::Permissions permissions(testDb.GetDatabaseHelper());
+    KeyValueTable row = permissions.GetPermission(transaction, permissionName);
+    ASSERT_FALSE(row.empty());
+    int64_t permissionId =
+        std::stoll(row.at(std::string(DbSchema::kPermissionsId)));
+    TableHelpers::AdminTablePermissions atp(testDb.GetDatabaseHelper());
+    atp.AddAdminTablePermission(transaction, tableName, permissionId);
 }
 
 void SetupLoggedInUser(
@@ -166,6 +186,117 @@ TEST(UploadPhotoTest, UploadPhotoNotAdmin) {
         crow::request req;
         req.method = crow::HTTPMethod::POST;
         req.url = "/api/upload_photo/people/" + std::to_string(personId)
+            + "/jpeg";
+        req.body.assign(jpeg.begin(), jpeg.end());
+        crow::response resp;
+        endpointHelper.GetWebApp().GetApp().handle_full(req, resp);
+
+        EXPECT_EQ(resp.code, 403);
+    });
+
+    Auth::ServerConfig::Shutdown();
+}
+
+// A non-admin whose permissions grant the table through admin_table_permissions
+// administers that table's rows, and therefore their photos. Before this, the
+// generic upload was admin-only, which locked permission-scoped authors (e.g.
+// author_blog) out of their own content's images.
+TEST(UploadPhotoTest, UploadPhotoNonAdminWithTableGrant) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UploadPhotoGranted", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+
+        int64_t personId = 0;
+        SetupLoggedInUser(transaction, testDb, endpointHelper, personId);
+        endpointHelper.GrantPermissionToPerson(
+            transaction, personId, "author_things");
+        GrantTableToPermission(transaction, testDb, "people", "author_things");
+
+        TableHelpers::PhotoSupportTables pst(testDb.GetDatabaseHelper());
+        pst.AddPhotoSupportTable(transaction, "people");
+
+        auto jpeg = MakeTestJpeg(32, 32);
+
+        crow::request req;
+        req.method = crow::HTTPMethod::Post;
+        req.url = "/api/upload_photo/people/" + std::to_string(personId)
+            + "/jpeg";
+        req.body.assign(jpeg.begin(), jpeg.end());
+        crow::response resp;
+        endpointHelper.GetWebApp().GetApp().handle_full(req, resp);
+
+        EXPECT_EQ(resp.code, 200) << resp.body;
+    });
+
+    Auth::ServerConfig::Shutdown();
+}
+
+// The grant is per-table: holding a permission that unlocks one table says
+// nothing about any other.
+TEST(UploadPhotoTest, UploadPhotoNonAdminGrantIsPerTable) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UploadPhotoWrongTable", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+
+        int64_t personId = 0;
+        SetupLoggedInUser(transaction, testDb, endpointHelper, personId);
+        endpointHelper.GrantPermissionToPerson(
+            transaction, personId, "author_things");
+        // Granted some OTHER table, not the one being written.
+        GrantTableToPermission(transaction, testDb, "roles", "author_things");
+
+        TableHelpers::PhotoSupportTables pst(testDb.GetDatabaseHelper());
+        pst.AddPhotoSupportTable(transaction, "people");
+
+        auto jpeg = MakeTestJpeg(32, 32);
+
+        crow::request req;
+        req.method = crow::HTTPMethod::Post;
+        req.url = "/api/upload_photo/people/" + std::to_string(personId)
+            + "/jpeg";
+        req.body.assign(jpeg.begin(), jpeg.end());
+        crow::response resp;
+        endpointHelper.GetWebApp().GetApp().handle_full(req, resp);
+
+        EXPECT_EQ(resp.code, 403);
+    });
+
+    Auth::ServerConfig::Shutdown();
+}
+
+// REGRESSION GUARD. The obvious one-line version of this change is to swap the
+// admin check for IsTableAllowed — and it is wrong. IsTableAllowed unions the
+// app's BASE PUBLIC read list with the per-permission grants, so it would hand
+// photo-write access on every public table to any logged-in user. Write access
+// comes from the grants alone.
+TEST(UploadPhotoTest, UploadPhotoBaseAllowedTableIsNotWritable) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UploadPhotoBaseAllowed", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+
+        int64_t personId = 0;
+        SetupLoggedInUser(transaction, testDb, endpointHelper, personId);
+        // Readable by anyone (the app's base list) but granted to nobody.
+        endpointHelper.AddAllowedTable(transaction, "people");
+
+        TableHelpers::PhotoSupportTables pst(testDb.GetDatabaseHelper());
+        pst.AddPhotoSupportTable(transaction, "people");
+
+        auto jpeg = MakeTestJpeg(32, 32);
+
+        crow::request req;
+        req.method = crow::HTTPMethod::Post;
+        // Someone ELSE's row, so the people self-photo carve-out doesn't apply.
+        req.url = "/api/upload_photo/people/" + std::to_string(personId + 1)
             + "/jpeg";
         req.body.assign(jpeg.begin(), jpeg.end());
         crow::response resp;

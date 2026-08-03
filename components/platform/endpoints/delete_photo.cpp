@@ -59,16 +59,15 @@ void DeletePhoto(
     }
 
     tp->RunInTransaction([&](Transaction& transaction) {
-        // Admin can delete any photo.
-        // Non-admin can only delete their own people photo.
-        bool isAdmin = session.IsAdmin(transaction);
-        if (!isAdmin) {
-            if (tableName != "people"
-                || tableItemId != session.GetPersonId()) {
-                resp = ErrorResponse::NotAuthorized(
-                    "Admin access required to delete photos");
-                return;
-            }
+        // Your own people photo is always yours to remove. Otherwise the same
+        // rule as upload: an admin, or a non-admin whose permissions grant this
+        // table through admin_table_permissions.
+        bool ownPeoplePhoto =
+            tableName == "people" && tableItemId == session.GetPersonId();
+        if (!ownPeoplePhoto
+            && !endpointAuthHelper.RequireTableWriteAccess(
+                   transaction, tableName, resp)) {
+            return;
         }
 
         Images::ImageHelper imageHelper(
