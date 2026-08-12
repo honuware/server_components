@@ -5,6 +5,7 @@
 
 #include "endpoint_auth_helper.h"
 #include "web_app.h"
+#include "business_logic/branding/site_content_slots.h"
 #include "business_logic/tenancy/tenant_context.h"
 #include "sql_util/database_access/transaction.h"
 #include "util/error_response.h"
@@ -51,11 +52,19 @@ public:
 Json::Value BuildSiteInfoResponse(
     std::string_view displayName,
     std::string_view websiteUrl,
-    std::string_view logoUrl) {
+    std::string_view logoUrl,
+    const KeyValueTable& content,
+    const KeyValueTable& theme) {
     return Json::Value(Json::JsonObject{
         {"display_name", Json::Value(std::string(displayName))},
         {"website_url", Json::Value(std::string(websiteUrl))},
         {"logo_url", Json::Value(std::string(logoUrl))},
+        // Json::Value's map constructor keeps every value a JSON STRING.
+        // SqlUtil::KeyValueTableToJson would be the reflex here, but it promotes
+        // integer-looking strings to numbers — turning a browser title of "2026"
+        // into something the SPA has to re-stringify. Branding copy is text.
+        {"content", Json::Value(content)},
+        {"theme", Json::Value(theme)},
     });
 }
 
@@ -63,6 +72,7 @@ Json::Value GetSiteInfo(EndpointAuthHelper& endpointAuthHelper) {
     std::string displayName;
     std::string websiteUrl;
     std::string logoUrl;
+    KeyValueTable content;
     endpointAuthHelper.GetTransactionProvider()->RunInTransaction(
         [&](Transaction& transaction) {
             Secrets::SecretsHelperPtr secrets =
@@ -72,13 +82,17 @@ Json::Value GetSiteInfo(EndpointAuthHelper& endpointAuthHelper) {
             displayName = branding.studioName;
             websiteUrl = branding.websiteUrl;
             logoUrl = secrets->LookupSecret(transaction, Secrets::kSiteLogoUrl);
+            content = Branding::LoadSiteContent(*secrets, transaction);
         });
     // Fall back to the tenants-row display name when the branding secret is blank
     // (e.g. a freshly provisioned tenant that hasn't set kMailSenderName yet).
     if (displayName.empty()) {
         displayName = endpointAuthHelper.GetTenantContext().displayName;
     }
-    return BuildSiteInfoResponse(displayName, websiteUrl, logoUrl);
+    // `theme` stays empty until Tenant Theming Phase 4 registers the
+    // site_theme_* tokens — the object ships now so the payload shape is final.
+    KeyValueTable theme;
+    return BuildSiteInfoResponse(displayName, websiteUrl, logoUrl, content, theme);
 }
 
 }  // namespace Endpoints

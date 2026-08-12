@@ -31,6 +31,18 @@ addSecret(kMyNewSecret, kMyNewSecretValue);
 
 If you only add a key without a default value, the secret will return empty unless explicitly configured in the database, which can cause unexpected behavior.
 
+## Framework key, application default
+
+`config_secrets.name` is **UNIQUE**, so exactly one side may register a default
+for a given key — registering in both places makes the seed insert twice and the
+transaction fails. When a key is framework surface but its default VALUE is
+brand-specific (`kMailSenderName`, and every `site_*` content slot except the two
+URL slots whose neutral default really is `""`), declare the key here and leave
+`FillInSecretsStringView` alone: the consuming application supplies the value
+through its own defaults registration (knottyyoga's
+`business_logic/app_secret_values.cpp`). The app-side test
+`AppSecretValuesTest.FrameworkAndAppKeySetsDoNotOverlap` enforces the rule.
+
 ## File Overview
 
 | File | Purpose |

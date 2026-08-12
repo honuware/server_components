@@ -9,6 +9,7 @@
 #include "endpoints/endpoint_test_helper.h"
 #include "web_app.h"
 #include "business_logic/auth/server_config.h"
+#include "business_logic/branding/site_content_slots.h"
 #include "business_logic/tenancy/tenant_context.h"
 #include "sql_util/database_access/transaction.h"
 #include "test/src/util/database_test_helper.h"
@@ -22,19 +23,48 @@ namespace {
 // --- BuildSiteInfoResponse: pure JSON shape ---
 
 TEST(SiteInfoTest, BuildSiteInfoResponseMapsAllFields) {
+    KeyValueTable content{{"site_hero_headline", "Acme moves people"}};
+    KeyValueTable theme{{"--theme-primary", "#0B6E4F"}};
     Json::Value body = BuildSiteInfoResponse(
-        "Acme Studio", "https://acme.example", "https://acme.example/logo.svg");
+        "Acme Studio", "https://acme.example", "https://acme.example/logo.svg",
+        content, theme);
     EXPECT_EQ(body["display_name"].Get<std::string>(), "Acme Studio");
     EXPECT_EQ(body["website_url"].Get<std::string>(), "https://acme.example");
     EXPECT_EQ(body["logo_url"].Get<std::string>(), "https://acme.example/logo.svg");
+    EXPECT_EQ(body["content"]["site_hero_headline"].Get<std::string>(),
+              "Acme moves people");
+    EXPECT_EQ(body["theme"]["--theme-primary"].Get<std::string>(), "#0B6E4F");
 }
 
 TEST(SiteInfoTest, BuildSiteInfoResponseEmptyLogoIsEmptyString) {
     // The default: no per-tenant logo set — the SPA falls back to its bundled
     // asset. The key is still present (as an empty string), never omitted.
-    Json::Value body = BuildSiteInfoResponse("Acme", "https://acme.example", "");
+    Json::Value body = BuildSiteInfoResponse(
+        "Acme", "https://acme.example", "", KeyValueTable{}, KeyValueTable{});
     EXPECT_TRUE(body.HasChild("logo_url", nullptr));
     EXPECT_EQ(body["logo_url"].Get<std::string>(), "");
+}
+
+TEST(SiteInfoTest, BuildSiteInfoResponseAlwaysEmitsContentAndThemeObjects) {
+    // Decision D2: one bootstrap call whose SHAPE never changes. A tenant that
+    // has customized nothing still gets both objects, so the SPA's boot applier
+    // never has to branch on their absence — and Phase 4 can fill `theme`
+    // without touching the client contract.
+    Json::Value body = BuildSiteInfoResponse(
+        "Acme", "", "", KeyValueTable{}, KeyValueTable{});
+    EXPECT_TRUE(body.HasChild("content", nullptr));
+    EXPECT_TRUE(body.HasChild("theme", nullptr));
+    EXPECT_TRUE(body["content"].GetChildren().empty());
+    EXPECT_TRUE(body["theme"].GetChildren().empty());
+}
+
+TEST(SiteInfoTest, BuildSiteInfoResponseKeepsNumericLookingCopyAsAString) {
+    // A studio whose browser title is "2026" must not come back as a number —
+    // the reason this builder does not route through KeyValueTableToJson.
+    KeyValueTable content{{"site_browser_title", "2026"}};
+    Json::Value body = BuildSiteInfoResponse(
+        "Acme", "", "", content, KeyValueTable{});
+    EXPECT_EQ(body["content"]["site_browser_title"].Get<std::string>(), "2026");
 }
 
 // --- GetSiteInfo: sources branding from the resolved tenant's secrets ---
@@ -73,6 +103,44 @@ TEST(SiteInfoTest, GetSiteInfoReturnsBrandingFromTenantSecrets) {
                       "https://test.example");
             EXPECT_EQ(body["logo_url"].Get<std::string>(),
                       "https://test.example/logo.svg");
+        });
+
+    Auth::ServerConfig::Shutdown();
+}
+
+TEST(SiteInfoTest, GetSiteInfoCarriesTheTenantsContentSlots) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction(
+        "SiteInfoContentSlots", [&](Transaction& transaction) {
+            EndpointTestHelper endpointHelper(transaction, testDb);
+
+            crow::request req;
+            req.method = crow::HTTPMethod::Get;
+            crow::response resp;
+            EndpointAuthHelper helper(endpointHelper.GetWebApp(), req, resp);
+            helper.Initialize();
+
+            helper.GetTransactionProvider()->RunInTransaction(
+                [&](Transaction& t) {
+                    Secrets::SecretsHelperPtr secrets = helper.GetSecretsHelper();
+                    secrets->AddSecret(
+                        t, Secrets::kSiteHeroHeadline, "Acme moves people");
+                    // Junk in the store must not reach the client (D10).
+                    secrets->AddSecret(
+                        t, Secrets::kSiteHeroImageUrl, "javascript:alert(1)");
+                });
+
+            Json::Value body = GetSiteInfo(helper);
+            const Json::Value& content = body["content"];
+            EXPECT_EQ(content["site_hero_headline"].Get<std::string>(),
+                      "Acme moves people");
+            EXPECT_EQ(content["site_hero_image_url"].Get<std::string>(), "");
+            // Every registered slot travels, so the SPA's merge is total.
+            EXPECT_EQ(content.GetChildren().size(),
+                      Branding::SiteContentSlots().size());
         });
 
     Auth::ServerConfig::Shutdown();
@@ -135,6 +203,9 @@ TEST(SiteInfoTest, HttpEndpointReturnsBrandingUnauthenticated) {
         EXPECT_TRUE(body.HasChild("display_name", nullptr));
         EXPECT_TRUE(body.HasChild("website_url", nullptr));
         EXPECT_TRUE(body.HasChild("logo_url", nullptr));
+        EXPECT_TRUE(body.HasChild("content", nullptr));
+        EXPECT_TRUE(body.HasChild("theme", nullptr));
+        EXPECT_TRUE(body["content"].HasChild("site_about_markdown", nullptr));
     });
 
     Auth::ServerConfig::Shutdown();

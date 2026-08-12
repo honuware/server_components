@@ -34,6 +34,34 @@ inline constexpr std::string_view kWebsiteLoginLink = "login_link";
 // (framework) rather than app_secret_keys.h.
 inline constexpr std::string_view kSiteLogoUrl = "site_logo_url";
 
+// Tenant Theming and Branding Phase 1: the public CONTENT SLOTS a tenant fills
+// in so one built SPA bundle renders that studio's own copy. Every key here is
+// served by GET /api/site_info's `content` object (see
+// business_logic/branding/site_content_slots.h, which is the registry that
+// decides which keys are public and how each is validated).
+//
+// KEY names are brand-free framework surface; the brand-content default VALUES
+// are registered app-side (business_logic/app_secret_values.cpp), exactly as
+// kMailSenderName does — config_secrets.name is UNIQUE, so a key gets its
+// default from the framework OR the app, never both. The two URL slots below
+// are the exception: their neutral default is genuinely framework-owned (empty
+// == "use the SPA's bundled asset", the contract kSiteLogoUrl established), so
+// they are defaulted in secret_values.cpp.
+inline constexpr std::string_view kSiteLogoAlt = "site_logo_alt";
+inline constexpr std::string_view kSiteBrowserTitle = "site_browser_title";
+inline constexpr std::string_view kSiteFaviconUrl = "site_favicon_url";
+inline constexpr std::string_view kSiteHeroHeadline = "site_hero_headline";
+inline constexpr std::string_view kSiteHeroSubline = "site_hero_subline";
+inline constexpr std::string_view kSiteHeroImageUrl = "site_hero_image_url";
+inline constexpr std::string_view kSiteTaglineLines = "site_tagline_lines";
+inline constexpr std::string_view kSiteAddressLines = "site_address_lines";
+inline constexpr std::string_view kSiteContactEmail = "site_contact_email";
+inline constexpr std::string_view kSiteAboutMarkdown = "site_about_markdown";
+inline constexpr std::string_view kSiteStartIntro = "site_start_intro";
+inline constexpr std::string_view kSiteMembershipBlurb = "site_membership_blurb";
+// Freeform "label|url" lines, one social destination per line (OQ-T4).
+inline constexpr std::string_view kSiteSocialLinks = "site_social_links";
+
 // Auth related keys
 inline constexpr std::string_view kAuthVerifyEmailTimeLimitInMicros = "auth_verify_email_time_limit_in_micros";
 

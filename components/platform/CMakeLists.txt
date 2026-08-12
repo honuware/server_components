@@ -21,6 +21,10 @@ target_sources(${HONUWARE_TESTS_TARGET} PUBLIC
 )
 
 add_subdirectory(business_logic/auth)
+# Tenant Theming and Branding (D11): the per-tenant content-slot registry +
+# value validation that GET /api/site_info and the Site Theme manage endpoints
+# both read.
+add_subdirectory(business_logic/branding)
 add_subdirectory(business_logic/images)
 add_subdirectory(business_logic/migration)
 # Multi-tenancy control plane (tenancy plan Phase 1): control-DB access +

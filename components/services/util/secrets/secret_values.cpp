@@ -27,6 +27,13 @@ inline constexpr std::string_view kWebsiteApiLinkPrefixValue = "api/";
 // Tenancy Phase 7.1: empty by default — the SPA falls back to its bundled logo
 // asset until a tenant sets a logo URL via the secrets admin.
 inline constexpr std::string_view kSiteLogoUrlValue = "";
+// Tenant Theming Phase 1: the two content slots whose neutral default really is
+// framework-owned — empty means "the SPA keeps its bundled asset". Every OTHER
+// site_* content slot holds brand COPY, so its default is registered app-side
+// (app_secret_values.cpp); config_secrets.name is UNIQUE, so exactly one side
+// may default a given key.
+inline constexpr std::string_view kSiteFaviconUrlValue = "";
+inline constexpr std::string_view kSiteHeroImageUrlValue = "";
 // Phase 3.3 of the security review: the activation link is the SPA
 // route the verification mail points at. The SPA reads the email and
 // secret from the query string, immediately POSTs to /api/verify, and
@@ -126,6 +133,8 @@ void FillInSecretsStringView(std::function<void(std::string_view, std::string_vi
     addSecret(kWebsiteApiLinkPrefix, kWebsiteApiLinkPrefixValue);
     addSecret(kWebsiteActivationLink, kWebsiteActivationLinkValue);
     addSecret(kSiteLogoUrl, kSiteLogoUrlValue);
+    addSecret(kSiteFaviconUrl, kSiteFaviconUrlValue);
+    addSecret(kSiteHeroImageUrl, kSiteHeroImageUrlValue);
     addSecret(kAuthVerifyEmailTimeLimitInMicros, kAuthVerifyEmailTimeLimitInMicrosValue);
     addSecret(kEmailVerificationExpirationWindowInMicros, kEmailVerificationExpirationWindowInMicrosValue);
     addSecret(kEmailVerificationAttemptLimit, kEmailVerificationAttemptLimitValue);

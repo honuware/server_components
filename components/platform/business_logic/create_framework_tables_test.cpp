@@ -12,6 +12,8 @@
 #include "sql_util/table_helpers/permissions.h"
 #include "sql_util/table_helpers/roles.h"
 #include "test/src/util/database_test_helper.h"
+#include "util/secrets/secret_keys.h"
+#include "util/secrets/secret_values.h"
 
 // H2 extraction: framework-only stand-up. The honuware harness pre-creates the
 // framework tables (MakeFrameworkTables), so this exercises PopulateFrameworkTables
@@ -96,6 +98,34 @@ TEST(CreateFrameworkTablesTest, PopulateFrameworkTablesSeedsBaseline) {
                 std::stoll(transaction.RunSqlStatementReturningOneValue(
                     "SELECT count(*) FROM config_secrets")),
                 0);
+
+            // Tenant Theming Phase 1: every framework-registered default lands
+            // as exactly one row. config_secrets.name is UNIQUE, so a key
+            // defaulted on both the framework and the app side would abort this
+            // seed — this is where that collision would first show up.
+            Secrets::Values::FillInSecretsStringView(
+                [&](std::string_view name, std::string_view value) {
+                    (void)value;
+                    EXPECT_EQ(
+                        transaction.RunSqlStatementReturningOneValue(
+                            "SELECT count(*) FROM config_secrets WHERE name = $1",
+                            std::string(name)),
+                        "1")
+                        << "framework secret default not seeded exactly once: "
+                        << name;
+                });
+            // The two content slots whose neutral default is framework-owned
+            // (empty == "the SPA keeps its bundled asset").
+            EXPECT_EQ(
+                transaction.RunSqlStatementReturningOneValue(
+                    "SELECT value FROM config_secrets WHERE name = $1",
+                    std::string(Secrets::kSiteFaviconUrl)),
+                "");
+            EXPECT_EQ(
+                transaction.RunSqlStatementReturningOneValue(
+                    "SELECT value FROM config_secrets WHERE name = $1",
+                    std::string(Secrets::kSiteHeroImageUrl)),
+                "");
         });
 }
 
