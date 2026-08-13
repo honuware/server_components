@@ -25,6 +25,8 @@ target_sources(honuware_platform
     site_info.cpp
     site_font_face.h
     site_font_face.cpp
+    manage_site_theme.h
+    manage_site_theme.cpp
     add_item.h
     add_item.cpp
     add_item_fetch_primary_key.h
@@ -112,6 +114,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     health_test.cpp
     site_info_test.cpp
     site_font_face_test.cpp
+    manage_site_theme_test.cpp
     web_app_tenancy_test.cpp
     endpoint_auth_helper_tenancy_test.cpp
     get_table_rows_test.cpp
