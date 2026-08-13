@@ -5,6 +5,7 @@
 #include <stdexcept>
 
 #include "db_schema/photos.h"
+#include "sql_util/database_access/bytea.h"
 #include "util/secrets/secret_keys.h"
 #include "util/bounding_rect.h"
 #include "util/image_resize.h"
@@ -14,30 +15,15 @@ namespace Images {
 
 namespace {
 
-// Encode binary data to PostgreSQL bytea hex format (\xABCD...)
+// The bytea hex codec moved to sql_util/database_access/bytea.h when the font
+// inventory became the second store of binary data (Tenant Theming Phase 4B).
+// These thin aliases keep the call sites below reading the same.
 std::string ByteaHexEncode(const std::vector<char>& bytes) {
-    std::ostringstream oss;
-    oss << "\\x";
-    for (unsigned char c : bytes) {
-        oss << std::hex << std::setfill('0') << std::setw(2)
-            << static_cast<int>(c);
-    }
-    return oss.str();
+    return SqlUtil::ByteaHexEncode(bytes);
 }
 
-// Decode PostgreSQL bytea hex format (\xABCD...) to binary data
 std::vector<char> ByteaHexDecode(const std::string& hex) {
-    if (hex.size() < 2 || hex[0] != '\\' || hex[1] != 'x') {
-        return std::vector<char>(hex.begin(), hex.end());
-    }
-    std::vector<char> result;
-    result.reserve((hex.size() - 2) / 2);
-    for (size_t i = 2; i + 1 < hex.size(); i += 2) {
-        unsigned char byte = static_cast<unsigned char>(
-            std::stoi(hex.substr(i, 2), nullptr, 16));
-        result.push_back(static_cast<char>(byte));
-    }
-    return result;
+    return SqlUtil::ByteaHexDecodeToVector(hex);
 }
 
 }  // namespace

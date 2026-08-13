@@ -51,6 +51,18 @@ bool IsValidHexColor(std::string_view value);
 // No whitespace or control characters anywhere in the value.
 bool IsValidSiteUrl(std::string_view value);
 
+// A CSS length for a radius/size token: a number with a unit (`8px`, `0.5rem`,
+// `50%`), or a bare `0`. Deliberately NOT a general CSS value — these land in a
+// custom property, and `calc()`, `var()` and function syntax would let a tenant
+// smuggle arbitrary CSS through a field labelled "corner radius".
+bool IsValidCssLength(std::string_view value);
+
+// A CSS font-family list: `Roboto, Arial, sans-serif` or `"Din Bold", serif`.
+// Letters, digits, spaces, hyphens, underscores, commas and double quotes only.
+// The characters that would end the declaration or open a function — `;` `{` `}`
+// `(` `)` `\` `/` — are refused, so a family name cannot become a rule of its own.
+bool IsValidFontFamilyList(std::string_view value);
+
 // Returns an empty string when `value` is acceptable for `type`, otherwise a
 // short reason suitable for an HTTP 400 body. Assumes `value` has already been
 // through NormalizeLineEndings when the caller accepts CRLF input.

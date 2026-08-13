@@ -95,6 +95,55 @@ bool IsValidSiteUrl(std::string_view value) {
     return false;
 }
 
+bool IsValidCssLength(std::string_view value) {
+    if (value.empty() || value.size() > 16) {
+        return false;
+    }
+    if (value == "0") {
+        return true;
+    }
+    std::size_t i = 0;
+    bool sawDigit = false;
+    while (i < value.size() && value[i] >= '0' && value[i] <= '9') {
+        ++i;
+        sawDigit = true;
+    }
+    if (i < value.size() && value[i] == '.') {
+        ++i;
+        while (i < value.size() && value[i] >= '0' && value[i] <= '9') {
+            ++i;
+            sawDigit = true;
+        }
+    }
+    if (!sawDigit) {
+        return false;
+    }
+    std::string_view unit = value.substr(i);
+    return unit == "px" || unit == "rem" || unit == "em" || unit == "%";
+}
+
+bool IsValidFontFamilyList(std::string_view value) {
+    if (value.empty() || value.size() > 256) {
+        return false;
+    }
+    int quotes = 0;
+    for (char c : value) {
+        if (c == '"') {
+            ++quotes;
+            continue;
+        }
+        bool allowed =
+            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+            (c >= '0' && c <= '9') ||
+            c == ' ' || c == '-' || c == '_' || c == ',';
+        if (!allowed) {
+            return false;
+        }
+    }
+    // An unbalanced quote would leave the declaration open.
+    return quotes % 2 == 0;
+}
+
 std::string ValidateSlotValue(SlotType type, std::string_view value) {
     // Empty is always legal: it means "unset — fall back to the bundled
     // default", so clearing a field is how a tenant reverts one.

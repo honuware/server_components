@@ -27,6 +27,7 @@
 #include "db_schema/permissions.h"
 #include "db_schema/people.h"
 #include "db_schema/photos.h"
+#include "db_schema/site_fonts.h"
 #include "db_schema/role_assignments.h"
 #include "db_schema/role_permissions.h"
 #include "db_schema/roles.h"
@@ -98,6 +99,9 @@ void CreateFrameworkTables(
     CreateTable(DbSchema::kSourcePhotos);
     CreateTable(DbSchema::kScaledPhotos);
     CreateTable(DbSchema::kTableItemPhotos);
+    CreateTable(DbSchema::kSiteFontSources);
+    CreateTable(DbSchema::kSiteFonts);
+    CreateTable(DbSchema::kSiteFontFaces);
     CreateTable(DbSchema::kIdempotencyKeysTable);
     CreateTable(DbSchema::kLoginAttemptsTable);
     DbSchema::CreateLoginAttemptsIndexes(transaction);

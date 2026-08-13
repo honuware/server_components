@@ -1,5 +1,7 @@
 target_sources(honuware_data
     PRIVATE
+    bytea.h
+    bytea.cpp
     database_crud_helpers.h
     database_crud_helpers.cpp
     database_helper.h
@@ -27,6 +29,7 @@ target_sources(honuware_data
 
 target_sources(${HONUWARE_TESTS_TARGET}
     PUBLIC
+    bytea_test.cpp
     database_crud_helpers_priv.h
     database_crud_helpers_test.cpp
     database_helper_init_test.cpp

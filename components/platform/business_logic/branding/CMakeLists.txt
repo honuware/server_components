@@ -7,9 +7,15 @@ target_sources(honuware_platform PRIVATE
     site_value_validation.cpp
     site_content_slots.h
     site_content_slots.cpp
+    site_theme_tokens.h
+    site_theme_tokens.cpp
+    site_font_inventory.h
+    site_font_inventory.cpp
 )
 
 target_sources(${HONUWARE_TESTS_TARGET} PUBLIC
     site_value_validation_test.cpp
     site_content_slots_test.cpp
+    site_theme_tokens_test.cpp
+    site_font_inventory_test.cpp
 )

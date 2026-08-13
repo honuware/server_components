@@ -55,6 +55,8 @@ target_sources(honuware_platform
     photo_support_tables.cpp
     table_item_photos.h
     table_item_photos.cpp
+    site_fonts.h
+    site_fonts.cpp
     role_assignments.h
     role_assignments.cpp
     role_permissions.h
@@ -99,6 +101,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     idempotency_keys_test.cpp
     login_attempts_test.cpp
     photo_instances_test.cpp
+    site_fonts_test.cpp
     source_photos_test.cpp
     scaled_photos_test.cpp
     photo_support_tables_test.cpp

@@ -62,6 +62,14 @@ inline constexpr std::string_view kSiteMembershipBlurb = "site_membership_blurb"
 // Freeform "label|url" lines, one social destination per line (OQ-T4).
 inline constexpr std::string_view kSiteSocialLinks = "site_social_links";
 
+// Tenant Theming Phase 4: the DESIGN TOKENS (`site_theme_*`) are deliberately
+// NOT declared one-constant-per-key here. There are ~60 of them, nothing outside
+// the theming code ever names one individually, and the mapping that matters is
+// key -> CSS custom property — which only a table can express. The registry in
+// business_logic/branding/site_theme_tokens.cpp is their single source of truth.
+// They also have no default VALUES on either side: the SPA's stylesheet holds
+// the defaults, so "no config_secrets row" is the normal state for a token.
+
 // Auth related keys
 inline constexpr std::string_view kAuthVerifyEmailTimeLimitInMicros = "auth_verify_email_time_limit_in_micros";
 

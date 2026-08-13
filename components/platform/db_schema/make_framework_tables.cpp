@@ -26,6 +26,7 @@
 #include "permissions.h"
 #include "people.h"
 #include "photos.h"
+#include "site_fonts.h"
 #include "role_assignments.h"
 #include "role_permissions.h"
 #include "roles.h"
@@ -79,6 +80,12 @@ namespace DbSchema {
 		MakeSourcePhotosTable(databaseInfo);
 		MakeScaledPhotosTable(databaseInfo);
 		MakeTableItemPhotosTable(databaseInfo);
+
+		// Tenant Theming Phase 4B: the per-tenant font inventory. Sources first
+		// — a font row references one, and a face references a font.
+		MakeSiteFontSourcesTable(databaseInfo);
+		MakeSiteFontsTable(databaseInfo);
+		MakeSiteFontFacesTable(databaseInfo);
 
 		MakeIdempotencyKeysTable(databaseInfo);
 

@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 
+#include "business_logic/branding/site_font_inventory.h"
 #include "util/json_value.h"
 #include "util/types.h"  // KeyValueTable
 
@@ -25,7 +26,8 @@ Json::Value BuildSiteInfoResponse(
     std::string_view websiteUrl,
     std::string_view logoUrl,
     const KeyValueTable& content,
-    const KeyValueTable& theme);
+    const KeyValueTable& theme,
+    const Branding::SiteFontInventory& fonts);
 
 // HTTP handler for `GET /api/site_info` (tenancy plan Phase 7.1, extended by
 // Tenant Theming Phase 1). Returns the resolved tenant's PUBLIC branding —
