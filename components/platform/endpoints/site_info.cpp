@@ -24,10 +24,23 @@ void HandleGet(WebApp* webApp, const crow::request& req, crow::response& resp) {
         endpointAuthHelper.Initialize();
         Json::Value result = GetSiteInfo(endpointAuthHelper);
         resp.code = 200;
-        // Public + cacheable: branding changes rarely and the body carries no
-        // per-user data. Matches the plan's Cache-Control (5 minutes). The site
-        // header CloudFront injects makes each tenant's cache entry distinct.
-        resp.set_header("Cache-Control", "public, max-age=300");
+        // Public but REVALIDATED, not held for five minutes.
+        //
+        // This response decides how the whole site looks, so a stale copy is not
+        // a minor staleness — it is the tenant's branding silently not applying.
+        // With `max-age=300` an admin could save a colour, reload, see no change,
+        // and reasonably conclude the feature was broken (reported 8/14/2026;
+        // the value was in the database and in this payload the whole time).
+        //
+        // `no-cache` still allows storing — it requires revalidation before
+        // reuse — so a shared cache keeps working and the cost of being correct
+        // is one conditional request per boot on a ~1.5 KB body. Branding is
+        // read once per page load, not per request; this is not a hot path.
+        resp.set_header("Cache-Control", "no-cache");
+        // This body is tenant-specific and control mode picks the tenant from a
+        // request header, which is NOT part of a shared cache's key by default.
+        // Without this, one studio's branding could be served to another.
+        resp.set_header("Vary", "X-Honuware-Site");
         resp.set_header("Content-Type", "application/json");
         resp.write(result.ToString());
     }

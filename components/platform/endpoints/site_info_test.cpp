@@ -311,7 +311,13 @@ TEST(SiteInfoTest, HttpEndpointReturnsBrandingUnauthenticated) {
 
         EXPECT_EQ(resp.code, 200);
         EXPECT_EQ(resp.get_header_value("Content-Type"), "application/json");
-        EXPECT_EQ(resp.get_header_value("Cache-Control"), "public, max-age=300");
+        // Must REVALIDATE rather than be held: a stale copy of this response is
+        // the tenant's branding silently not applying, which is exactly how a
+        // saved colour appeared not to work at all.
+        EXPECT_EQ(resp.get_header_value("Cache-Control"), "no-cache");
+        // Tenant is chosen by request header in control mode, so a shared cache
+        // must key on it or one studio gets another's branding.
+        EXPECT_EQ(resp.get_header_value("Vary"), "X-Honuware-Site");
 
         Json::Value body = Json::Value::FromText(resp.body);
         EXPECT_TRUE(body.HasChild("display_name", nullptr));
