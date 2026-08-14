@@ -38,7 +38,22 @@ namespace Branding {
 enum class ThemeTokenType {
     Color,       // #RRGGBB
     Length,      // 8px / 0.5rem / 0
-    FontFamily,  // Roboto, Arial, sans-serif
+    FontFamily,  // a family NAME; the server composes the stack (D13)
+    Weight,      // 100–900, the CSS numeric font weight
+};
+
+// Which section of the editor a token belongs to (Phase 6B / D16). The five
+// COLOUR groups each get a live specimen built from real app classes, so
+// editing a token visibly restyles it in place.
+enum class ThemeTokenGroup {
+    Brand,      // what reads as "this studio"
+    Surface,    // page, cards, text, borders
+    Status,     // success / warn / danger / info
+    Shell,      // the dark header and footer band
+    Palette,    // the raw ramps every role points at
+    Radius,     // corner rounding
+    TypeScale,  // font sizes and weights
+    FontRole,   // which family does which job
 };
 
 struct ThemeToken {
@@ -48,6 +63,11 @@ struct ThemeToken {
     // is keyed by THIS, so the client applies it without a lookup table.
     std::string_view cssVariable;
     ThemeTokenType type;
+    ThemeTokenGroup group;
+    // Plain English: what this token is FOR. Served to the editor so the copy
+    // lives beside the registry rather than being duplicated in the client and
+    // drifting from it.
+    std::string_view description;
 };
 
 // The registry. Palette entries first, then roles, then radius, then type.

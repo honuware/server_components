@@ -20,6 +20,7 @@
 #include "endpoints/site_info.h"
 #include "endpoints/site_font_face.h"
 #include "endpoints/manage_site_theme.h"
+#include "endpoints/manage_site_fonts.h"
 #include "endpoints/update_item.h"
 // Phase 0.2a (H8): account/user + photo endpoints extracted from the app.
 #include "endpoints/account_activation.h"
@@ -90,6 +91,10 @@ void RegisterFrameworkEndpoints() {
     anchor = reinterpret_cast<AnchorFunc>(&GetSiteFontFace);
     anchor = reinterpret_cast<AnchorFunc>(&GetManageSiteTheme);
     anchor = reinterpret_cast<AnchorFunc>(&PutManageSiteTheme);
+    anchor = reinterpret_cast<AnchorFunc>(&GetManageSiteFonts);
+    anchor = reinterpret_cast<AnchorFunc>(&PutManageSiteFonts);
+    anchor = reinterpret_cast<AnchorFunc>(&PostManageSiteFontFace);
+    anchor = reinterpret_cast<AnchorFunc>(&DeleteManageSiteFontFace);
     anchor = reinterpret_cast<AnchorFunc>(&UpdateItem);
 
     // Phase 0.2a (H8): account/user + photo endpoints extracted from the app.

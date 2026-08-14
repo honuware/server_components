@@ -367,6 +367,29 @@ bool ImageHelper::HasPhoto(
     return tableItemPhotos_.HasPhoto(transaction, tableName, tableItemId);
 }
 
+ImageHelper::PhotoDimensions ImageHelper::GetPhotoDimensions(
+    Transaction& transaction,
+    std::string_view tableName,
+    int64_t tableItemId) {
+    PhotoDimensions dimensions;
+    KeyValueTable row = tableItemPhotos_.GetPhotoDimensions(
+        transaction, tableName, tableItemId);
+    if (row.empty()) {
+        return dimensions;
+    }
+    auto width = row.find("width");
+    auto height = row.find("height");
+    auto type = row.find("type");
+    if (width == row.end() || height == row.end()) {
+        return dimensions;
+    }
+    dimensions.found = true;
+    dimensions.width = std::atoi(width->second.c_str());
+    dimensions.height = std::atoi(height->second.c_str());
+    dimensions.type = type == row.end() ? std::string() : type->second;
+    return dimensions;
+}
+
 int64_t ImageHelper::DeleteScaledPhotosOlderThan(
     Transaction& transaction,
     int64_t maxAgeUs) {

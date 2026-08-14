@@ -90,4 +90,18 @@ bool TableItemPhotos::HasPhoto(
     return !row.empty();
 }
 
+KeyValueTable TableItemPhotos::GetPhotoDimensions(
+    Transaction& transaction,
+    std::string_view tableName,
+    int64_t tableItemId) const {
+    // width/height/type only — never the `photo` column (see the header).
+    return transaction.RunSqlStatementReturningOneRow(
+        "SELECT i.width, i.height, i.type "
+        "FROM table_item_photos t "
+        "JOIN source_photos s ON s.source_photo_id = t.source_photo_id "
+        "JOIN photo_instances i ON i.photo_instance_id = s.photo_instance_id "
+        "WHERE t.table_name = $1 AND t.table_item_id = $2",
+        std::string(tableName), StringFromInt(tableItemId));
+}
+
 }  // namespace TableHelpers

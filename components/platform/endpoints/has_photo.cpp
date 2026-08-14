@@ -67,11 +67,16 @@ Json::Value GetHasPhoto(
     Json::Value result;
     tp->RunInTransaction([&](Transaction& transaction) {
         Images::ImageHelper imageHelper(endpointAuthHelper.GetDatabaseHelper());
-        bool hasPhoto = imageHelper.HasPhoto(
-            transaction, tableName, tableItemId);
+        // One query answers both "is there one" and "how big is it" — the pair
+        // a management list actually asks. Reads no image bytes (Phase 6B).
+        Images::ImageHelper::PhotoDimensions dimensions =
+            imageHelper.GetPhotoDimensions(transaction, tableName, tableItemId);
 
         result = Json::Value(Json::JsonObject{
-            {"has_photo", hasPhoto}
+            {"has_photo", Json::Value(dimensions.found)},
+            {"width", Json::Value(static_cast<int64_t>(dimensions.width))},
+            {"height", Json::Value(static_cast<int64_t>(dimensions.height))},
+            {"type", Json::Value(dimensions.type)},
         });
         resp.code = 200;
     });

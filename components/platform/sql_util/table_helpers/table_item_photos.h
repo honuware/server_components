@@ -40,6 +40,17 @@ public:
         std::string_view tableName,
         int64_t tableItemId) const;
 
+    // The SOURCE image's `width`, `height` and `type` for an item, or an empty
+    // table when it has no photo.
+    //
+    // Deliberately selects only those three columns: this answers "how big is
+    // it" for a management LIST, and joining in the `photo` blob would pull a
+    // full-size image per row into memory to print two numbers.
+    KeyValueTable GetPhotoDimensions(
+        Transaction& transaction,
+        std::string_view tableName,
+        int64_t tableItemId) const;
+
 private:
     DatabaseHelper databaseHelper_;
 };

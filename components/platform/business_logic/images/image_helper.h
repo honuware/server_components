@@ -66,6 +66,20 @@ public:
         std::string_view tableName,
         int64_t tableItemId);
 
+    // The source image's size, for management screens that list what an item's
+    // photo IS without wanting the bytes. `found` is false when the item has no
+    // photo. Phase 6B: the Page Content editor shows this beside each row.
+    struct PhotoDimensions {
+        bool found = false;
+        int width = 0;
+        int height = 0;
+        std::string type;
+    };
+    PhotoDimensions GetPhotoDimensions(
+        Transaction& transaction,
+        std::string_view tableName,
+        int64_t tableItemId);
+
     int64_t DeleteScaledPhotosOlderThan(
         Transaction& transaction,
         int64_t maxAgeUs);

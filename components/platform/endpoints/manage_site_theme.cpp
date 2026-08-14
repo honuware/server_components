@@ -36,8 +36,24 @@ std::string TokenTypeName(Branding::ThemeTokenType type) {
         case Branding::ThemeTokenType::Color: return "color";
         case Branding::ThemeTokenType::Length: return "length";
         case Branding::ThemeTokenType::FontFamily: return "font";
+        case Branding::ThemeTokenType::Weight: return "weight";
     }
     return "color";
+}
+
+// The editor's section for this token (Phase 6B / D16).
+std::string TokenGroupName(Branding::ThemeTokenGroup group) {
+    switch (group) {
+        case Branding::ThemeTokenGroup::Brand: return "brand";
+        case Branding::ThemeTokenGroup::Surface: return "surface";
+        case Branding::ThemeTokenGroup::Status: return "status";
+        case Branding::ThemeTokenGroup::Shell: return "shell";
+        case Branding::ThemeTokenGroup::Palette: return "palette";
+        case Branding::ThemeTokenGroup::Radius: return "radius";
+        case Branding::ThemeTokenGroup::TypeScale: return "type_scale";
+        case Branding::ThemeTokenGroup::FontRole: return "font_role";
+    }
+    return "brand";
 }
 
 void HandleGet(WebApp* webApp, const crow::request& req, crow::response& resp) {
@@ -139,6 +155,10 @@ Json::Value GetManageSiteTheme(
                 {"key", Json::Value(std::string(token.key))},
                 {"css_variable", Json::Value(std::string(token.cssVariable))},
                 {"type", Json::Value(TokenTypeName(token.type))},
+                {"group", Json::Value(TokenGroupName(token.group))},
+                // The copy lives with the registry so it cannot drift from the
+                // token it describes.
+                {"description", Json::Value(std::string(token.description))},
                 {"value", Json::Value(stored)},
                 {"is_set", Json::Value(!stored.empty())},
             }));
