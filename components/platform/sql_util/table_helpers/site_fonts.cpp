@@ -23,6 +23,9 @@ constexpr std::string_view kSqlActiveFonts =
     "SELECT * FROM site_fonts WHERE active = true "
     "ORDER BY ordinal ASC, site_font_id ASC";
 
+constexpr std::string_view kSqlClearFontSource =
+    "UPDATE site_fonts SET font_source_id = NULL WHERE site_font_id = $1";
+
 // The face list deliberately does NOT select `bytes` — it feeds the site_info
 // payload, which needs descriptors, not megabytes of font data.
 constexpr std::string_view kSqlFacesForFont =
@@ -63,6 +66,28 @@ int64_t SiteFonts::AddSource(
     };
     return DbCrud::AddRowToTableFetchInt64PrimaryKey(
         transaction, databaseHelper_, DbSchema::kSiteFontSources, kv);
+}
+
+void SiteFonts::UpdateSource(
+    Transaction& transaction,
+    int64_t id,
+    std::string_view sourceKey,
+    std::string_view displayName,
+    std::string_view baseUrl,
+    std::string_view querySuffix,
+    std::string_view preconnectLines) {
+    KeyValueTable kv = {
+        { std::string(DbSchema::kSiteFontSourceKey), std::string(sourceKey) },
+        { std::string(DbSchema::kSiteFontSourceDisplayName), std::string(displayName) },
+        { std::string(DbSchema::kSiteFontSourceBaseUrl), std::string(baseUrl) },
+        { std::string(DbSchema::kSiteFontSourceQuerySuffix), std::string(querySuffix) },
+        { std::string(DbSchema::kSiteFontSourcePreconnectLines),
+          std::string(preconnectLines) },
+    };
+    DbCrud::UpdateRow(
+        transaction, databaseHelper_,
+        DbSchema::kSiteFontSources, DbSchema::kSiteFontSourceId,
+        StringFromInt(id), kv);
 }
 
 KeyValueTable SiteFonts::GetSource(Transaction& transaction, int64_t id) const {
@@ -118,6 +143,38 @@ int64_t SiteFonts::AddFont(
     }
     return DbCrud::AddRowToTableFetchInt64PrimaryKey(
         transaction, databaseHelper_, DbSchema::kSiteFonts, kv);
+}
+
+void SiteFonts::UpdateFont(
+    Transaction& transaction,
+    int64_t id,
+    std::string_view family,
+    std::string_view fallback,
+    std::string_view sourceKind,
+    int64_t fontSourceId,
+    std::string_view spec,
+    int ordinal) {
+    KeyValueTable kv = {
+        { std::string(DbSchema::kSiteFontFamily), std::string(family) },
+        { std::string(DbSchema::kSiteFontFallback), std::string(fallback) },
+        { std::string(DbSchema::kSiteFontSourceKind), std::string(sourceKind) },
+        { std::string(DbSchema::kSiteFontSpec), std::string(spec) },
+        { std::string(DbSchema::kSiteFontOrdinal), StringFromInt(ordinal) },
+    };
+    if (fontSourceId > 0) {
+        kv[std::string(DbSchema::kSiteFontFontSourceId)] = StringFromInt(fontSourceId);
+    }
+    DbCrud::UpdateRow(
+        transaction, databaseHelper_,
+        DbSchema::kSiteFonts, DbSchema::kSiteFontId, StringFromInt(id), kv);
+    if (fontSourceId <= 0) {
+        // A family that stops being a `cdn` row has to let go of its source.
+        // Done as its own statement rather than a key in the table above:
+        // omitting the key would leave the stale id in place, and an empty
+        // string cannot be bound to a bigint column.
+        transaction.RunSqlStatement(
+            std::string(kSqlClearFontSource), StringFromInt(id));
+    }
 }
 
 KeyValueTable SiteFonts::GetFont(Transaction& transaction, int64_t id) const {

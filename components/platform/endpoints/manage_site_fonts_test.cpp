@@ -179,6 +179,114 @@ TEST(ManageSiteFontsTest, ReplacesRatherThanAccumulating) {
     Auth::ServerConfig::Shutdown();
 }
 
+TEST(ManageSiteFontsTest, EditingOneFamilyKeepsAnotherFamilysUploadedFaces) {
+    // THE bug this reconciliation exists to prevent. The save used to delete
+    // every family and re-add it, which threw away the uploaded font FILES
+    // hanging off each row — so renaming an unrelated family silently destroyed
+    // the studio's brand typeface and there was nothing to re-upload from.
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("FontsKeepFaces", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+        SignIn(transaction, testDb, endpointHelper, /*makeAdmin=*/true);
+        TableHelpers::SiteFonts fonts(testDb.GetDatabaseHelper());
+        int64_t fontId = fonts.AddFont(
+            transaction, "Studio Sans", "sans-serif",
+            DbSchema::kSiteFontSourceKindUploaded, 0, "", 10);
+        int64_t faceId = fonts.AddFace(
+            transaction, fontId, 400, "normal", "woff2", "wOF2fake-bytes");
+
+        // A save that leaves Studio Sans listed but changes something else.
+        EXPECT_EQ(Call(endpointHelper, crow::HTTPMethod::Put,
+                       "/api/manage/site_fonts",
+                       R"JSON({"sources":[],"families":[
+                         {"family":"Studio Sans","fallback":"sans-serif",
+                          "source_kind":"uploaded"},
+                         {"family":"Georgia","fallback":"serif",
+                          "source_kind":"system"}]})JSON").code, 200);
+
+        // The family kept its row id, so the uploaded file is still attached.
+        EXPECT_FALSE(fonts.GetFace(transaction, faceId).empty());
+        KeyValueTable row = fonts.GetFontByFamily(transaction, "Studio Sans");
+        ASSERT_FALSE(row.empty());
+        EXPECT_EQ(row.at(std::string(DbSchema::kSiteFontId)),
+                  std::to_string(fontId));
+        ASSERT_EQ(fonts.GetFacesForFont(transaction, fontId).size(), 1u);
+    });
+    Auth::ServerConfig::Shutdown();
+}
+
+TEST(ManageSiteFontsTest, EditingASourceKeepsTheFamiliesPointedAtIt) {
+    // Sources are matched by key for the same reason: rebuilding the row would
+    // hand it a new id, and every family referencing it would be re-pointed at
+    // a source that no longer exists.
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("FontsSourceEdit", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+        SignIn(transaction, testDb, endpointHelper, /*makeAdmin=*/true);
+
+        EXPECT_EQ(Call(endpointHelper, crow::HTTPMethod::Put,
+                       "/api/manage/site_fonts", kGoodPayload).code, 200);
+        TableHelpers::SiteFonts fonts(testDb.GetDatabaseHelper());
+        int64_t sourceId = std::stoll(
+            fonts.GetSourceByKey(transaction, "google")
+                .at(std::string(DbSchema::kSiteFontSourceId)));
+
+        // Rename the source's display name; the key is what identifies it.
+        EXPECT_EQ(Call(endpointHelper, crow::HTTPMethod::Put,
+                       "/api/manage/site_fonts",
+                       R"JSON({"sources":[{
+                         "source_key":"google","display_name":"Google",
+                         "base_url":"https://fonts.googleapis.com/css2",
+                         "query_suffix":"display=swap","preconnect_lines":""}],
+                         "families":[{"family":"Barlow","fallback":"sans-serif",
+                          "source_kind":"cdn","source_key":"google",
+                          "spec":"family=Barlow:wght@100..900"}]})JSON").code, 200);
+
+        KeyValueTable source = fonts.GetSourceByKey(transaction, "google");
+        ASSERT_FALSE(source.empty());
+        EXPECT_EQ(source.at(std::string(DbSchema::kSiteFontSourceId)),
+                  std::to_string(sourceId));
+        EXPECT_EQ(source.at(std::string(DbSchema::kSiteFontSourceDisplayName)),
+                  "Google");
+        EXPECT_EQ(fonts.GetFontByFamily(transaction, "Barlow")
+                      .at(std::string(DbSchema::kSiteFontFontSourceId)),
+                  std::to_string(sourceId));
+    });
+    Auth::ServerConfig::Shutdown();
+}
+
+TEST(ManageSiteFontsTest, AFamilyThatStopsBeingDownloadedLetsGoOfItsSource) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("FontsDropSource", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+        SignIn(transaction, testDb, endpointHelper, /*makeAdmin=*/true);
+
+        EXPECT_EQ(Call(endpointHelper, crow::HTTPMethod::Put,
+                       "/api/manage/site_fonts", kGoodPayload).code, 200);
+        // Barlow becomes a system family — it must not keep pointing at Google.
+        EXPECT_EQ(Call(endpointHelper, crow::HTTPMethod::Put,
+                       "/api/manage/site_fonts",
+                       R"JSON({"sources":[],"families":[
+                         {"family":"Barlow","fallback":"sans-serif",
+                          "source_kind":"system"}]})JSON").code, 200);
+
+        TableHelpers::SiteFonts fonts(testDb.GetDatabaseHelper());
+        KeyValueTable row = fonts.GetFontByFamily(transaction, "Barlow");
+        ASSERT_FALSE(row.empty());
+        EXPECT_EQ(row.at(std::string(DbSchema::kSiteFontSourceKind)), "system");
+        // Cleared, not left dangling at the deleted source's id.
+        auto it = row.find(std::string(DbSchema::kSiteFontFontSourceId));
+        EXPECT_TRUE(it == row.end() || it->second.empty());
+    });
+    Auth::ServerConfig::Shutdown();
+}
+
 TEST(ManageSiteFontsTest, ASystemFamilyNeedsNoSourceOrSpec) {
     Auth::ServerConfig::Shutdown();
     Auth::ServerConfig::InitializeTestMode();

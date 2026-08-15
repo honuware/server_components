@@ -53,6 +53,70 @@ TEST(SiteFontsTest, GetSourceByKeyFindsTheRow) {
     });
 }
 
+TEST(SiteFontsTest, UpdateSourceEditsInPlaceRatherThanReplacingTheRow) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UpdateSource", [&](Transaction& transaction) {
+        SiteFonts fonts(testDb.GetDatabaseHelper());
+        int64_t id = fonts.AddSource(
+            transaction, "google", "Google Fonts",
+            "https://fonts.googleapis.com/css2", "display=swap", "");
+
+        fonts.UpdateSource(transaction, id, "google", "Google",
+                           "https://fonts.googleapis.com/css", "display=block",
+                           "https://fonts.gstatic.com|true");
+
+        KeyValueTable row = fonts.GetSource(transaction, id);
+        EXPECT_EQ(row.at("display_name"), "Google");
+        EXPECT_EQ(row.at("base_url"), "https://fonts.googleapis.com/css");
+        EXPECT_EQ(row.at("query_suffix"), "display=block");
+        EXPECT_EQ(row.at("preconnect_lines"), "https://fonts.gstatic.com|true");
+        // Still one row, still the same id — families keep pointing at it.
+        EXPECT_EQ(fonts.GetAllSources(transaction).size(), 1u);
+    });
+}
+
+TEST(SiteFontsTest, UpdateFontKeepsTheIdSoUploadedFacesStayAttached) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UpdateFont", [&](Transaction& transaction) {
+        SiteFonts fonts(testDb.GetDatabaseHelper());
+        int64_t id = fonts.AddFont(transaction, "Studio Sans", "sans-serif",
+                                   DbSchema::kSiteFontSourceKindUploaded, 0, "", 10);
+        int64_t faceId = fonts.AddFace(
+            transaction, id, 400, "normal", "woff2", "wOF2bytes");
+
+        fonts.UpdateFont(transaction, id, "Studio Sans", "serif",
+                         DbSchema::kSiteFontSourceKindUploaded, 0, "", 20);
+
+        KeyValueTable row = fonts.GetFont(transaction, id);
+        EXPECT_EQ(row.at("fallback"), "serif");
+        EXPECT_EQ(row.at("ordinal"), "20");
+        // The face is what makes this matter: it hangs off the font id.
+        EXPECT_FALSE(fonts.GetFace(transaction, faceId).empty());
+        EXPECT_EQ(fonts.GetFacesForFont(transaction, id).size(), 1u);
+    });
+}
+
+TEST(SiteFontsTest, UpdateFontClearsTheSourceWhenAFamilyStopsBeingDownloaded) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UpdateFontNoSource", [&](Transaction& transaction) {
+        SiteFonts fonts(testDb.GetDatabaseHelper());
+        int64_t sourceId = fonts.AddSource(
+            transaction, "google", "Google Fonts", "https://fonts.test", "", "");
+        int64_t id = fonts.AddFont(transaction, "Barlow", "sans-serif",
+                                   DbSchema::kSiteFontSourceKindCdn, sourceId,
+                                   "family=Barlow", 10);
+
+        fonts.UpdateFont(transaction, id, "Barlow", "sans-serif",
+                         DbSchema::kSiteFontSourceKindSystem, 0, "", 10);
+
+        KeyValueTable row = fonts.GetFont(transaction, id);
+        EXPECT_EQ(row.at("source_kind"), "system");
+        // Cleared to NULL, not left dangling at the old source.
+        auto it = row.find(std::string(DbSchema::kSiteFontFontSourceId));
+        EXPECT_TRUE(it == row.end() || it->second.empty());
+    });
+}
+
 TEST(SiteFontsTest, AddAndGetFontCarriesFamilyAndFallbackSeparately) {
     // D13: two columns, neither ever defaulted.
     TestDatabaseUtil testDb;

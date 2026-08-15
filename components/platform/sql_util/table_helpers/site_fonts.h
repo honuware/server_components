@@ -30,6 +30,18 @@ public:
         std::string_view querySuffix,
         std::string_view preconnectLines);
 
+    // Edit a source in place. The editor saves the whole inventory at once, and
+    // rebuilding rows instead of updating them would hand every family a new
+    // source id on each save.
+    void UpdateSource(
+        Transaction& transaction,
+        int64_t id,
+        std::string_view sourceKey,
+        std::string_view displayName,
+        std::string_view baseUrl,
+        std::string_view querySuffix,
+        std::string_view preconnectLines);
+
     KeyValueTable GetSource(Transaction& transaction, int64_t id) const;
     KeyValueTable GetSourceByKey(
         Transaction& transaction, std::string_view sourceKey) const;
@@ -42,6 +54,19 @@ public:
     // "" for `uploaded` and `system` families.
     int64_t AddFont(
         Transaction& transaction,
+        std::string_view family,
+        std::string_view fallback,
+        std::string_view sourceKind,
+        int64_t fontSourceId,
+        std::string_view spec,
+        int ordinal);
+
+    // Edit a family in place, KEEPING its id — which is what keeps its uploaded
+    // faces attached. A save that deleted and re-added families would silently
+    // destroy every font file the studio uploaded.
+    void UpdateFont(
+        Transaction& transaction,
+        int64_t id,
         std::string_view family,
         std::string_view fallback,
         std::string_view sourceKind,

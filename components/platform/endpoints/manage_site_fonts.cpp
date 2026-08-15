@@ -341,10 +341,77 @@ Json::Value PutManageSiteFonts(
             }
         }
 
-        // ---- replace ----
-        // Faces first: they reference a family, so a removed family's faces
-        // must go before it does.
+        // ---- reconcile ----
+        //
+        // Matched by KEY (sources) and FAMILY NAME (families), updating in
+        // place and deleting only what the payload dropped.
+        //
+        // This must not be a delete-everything-then-re-add: a family's uploaded
+        // font FILES hang off its row id, so recreating the row would destroy
+        // every face the studio uploaded — on a save that merely renamed a
+        // different family. An admin cannot be expected to re-upload their
+        // brand typeface after editing an unrelated row.
+
+        std::map<std::string, int64_t> sourceIdByKey;
+        std::set<std::string> keptSourceKeys;
+        if (sources && sources->IsArray()) {
+            for (const auto& source : sources->GetArray()) {
+                std::string key = FieldString(source, "source_key");
+                std::string displayName = FieldString(source, "display_name");
+                std::string baseUrl = FieldString(source, "base_url");
+                std::string suffix = FieldString(source, "query_suffix");
+                std::string preconnects = FieldString(source, "preconnect_lines");
+                KeyValueTable existing = fonts.GetSourceByKey(transaction, key);
+                if (existing.empty()) {
+                    sourceIdByKey[key] = fonts.AddSource(
+                        transaction, key, displayName, baseUrl, suffix, preconnects);
+                } else {
+                    int64_t id = std::atoll(
+                        ValueOr(existing, DbSchema::kSiteFontSourceId).c_str());
+                    fonts.UpdateSource(
+                        transaction, id, key, displayName, baseUrl, suffix, preconnects);
+                    sourceIdByKey[key] = id;
+                }
+                keptSourceKeys.insert(key);
+            }
+        }
+
+        int ordinal = 10;
+        std::set<std::string> keptFamilies;
+        if (families && families->IsArray()) {
+            for (const auto& family : families->GetArray()) {
+                std::string name = FieldString(family, "family");
+                std::string fallback = FieldString(family, "fallback");
+                std::string kind = FieldString(family, "source_kind");
+                int64_t sourceId = 0;
+                std::string spec;
+                if (kind == DbSchema::kSiteFontSourceKindCdn) {
+                    auto it = sourceIdByKey.find(FieldString(family, "source_key"));
+                    sourceId = it == sourceIdByKey.end() ? 0 : it->second;
+                    spec = FieldString(family, "spec");
+                }
+                KeyValueTable existing = fonts.GetFontByFamily(transaction, name);
+                if (existing.empty()) {
+                    fonts.AddFont(
+                        transaction, name, fallback, kind, sourceId, spec, ordinal);
+                } else {
+                    fonts.UpdateFont(
+                        transaction,
+                        std::atoll(ValueOr(existing, DbSchema::kSiteFontId).c_str()),
+                        name, fallback, kind, sourceId, spec, ordinal);
+                }
+                keptFamilies.insert(name);
+                ordinal += 10;
+            }
+        }
+
+        // Now drop what the payload no longer lists. Families first (a removed
+        // family's faces must go before it does), then sources — a source can
+        // only be removed once nothing references it.
         for (const KeyValueTable& row : fonts.GetAllFonts(transaction)) {
+            if (keptFamilies.count(ValueOr(row, DbSchema::kSiteFontFamily))) {
+                continue;
+            }
             int64_t id = std::atoll(ValueOr(row, DbSchema::kSiteFontId).c_str());
             for (const KeyValueTable& face : fonts.GetFacesForFont(transaction, id)) {
                 fonts.DeleteFace(transaction,
@@ -353,49 +420,16 @@ Json::Value PutManageSiteFonts(
             fonts.DeleteFont(transaction, id);
         }
         for (const KeyValueTable& row : fonts.GetAllSources(transaction)) {
+            if (keptSourceKeys.count(ValueOr(row, DbSchema::kSiteFontSourceKey))) {
+                continue;
+            }
             fonts.DeleteSource(transaction,
                 std::atoll(ValueOr(row, DbSchema::kSiteFontSourceId).c_str()));
         }
 
-        std::map<std::string, int64_t> sourceIdByKey;
-        if (sources && sources->IsArray()) {
-            for (const auto& source : sources->GetArray()) {
-                std::string key = FieldString(source, "source_key");
-                sourceIdByKey[key] = fonts.AddSource(
-                    transaction,
-                    key,
-                    FieldString(source, "display_name"),
-                    FieldString(source, "base_url"),
-                    FieldString(source, "query_suffix"),
-                    FieldString(source, "preconnect_lines"));
-            }
-        }
-
-        int ordinal = 10;
-        if (families && families->IsArray()) {
-            for (const auto& family : families->GetArray()) {
-                std::string kind = FieldString(family, "source_kind");
-                int64_t sourceId = 0;
-                if (kind == DbSchema::kSiteFontSourceKindCdn) {
-                    auto it = sourceIdByKey.find(FieldString(family, "source_key"));
-                    sourceId = it == sourceIdByKey.end() ? 0 : it->second;
-                }
-                fonts.AddFont(
-                    transaction,
-                    FieldString(family, "family"),
-                    FieldString(family, "fallback"),
-                    kind,
-                    sourceId,
-                    kind == DbSchema::kSiteFontSourceKindCdn
-                        ? FieldString(family, "spec") : "",
-                    ordinal);
-                ordinal += 10;
-            }
-        }
-
         result = Json::Value(Json::JsonObject{
-            {"sources", Json::Value(static_cast<int64_t>(sourceIdByKey.size()))},
-            {"families", Json::Value(static_cast<int64_t>(familyNames.size()))},
+            {"sources", Json::Value(static_cast<int64_t>(keptSourceKeys.size()))},
+            {"families", Json::Value(static_cast<int64_t>(keptFamilies.size()))},
         });
         resp.code = 200;
     });
