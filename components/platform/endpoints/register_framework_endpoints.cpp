@@ -19,8 +19,10 @@
 #include "endpoints/resolve_fk_display.h"
 #include "endpoints/site_info.h"
 #include "endpoints/site_font_face.h"
+#include "endpoints/site_asset.h"
 #include "endpoints/manage_site_theme.h"
 #include "endpoints/manage_site_fonts.h"
+#include "endpoints/manage_site_theme_bundle.h"
 #include "endpoints/update_item.h"
 // Phase 0.2a (H8): account/user + photo endpoints extracted from the app.
 #include "endpoints/account_activation.h"
@@ -95,6 +97,11 @@ void RegisterFrameworkEndpoints() {
     anchor = reinterpret_cast<AnchorFunc>(&PutManageSiteFonts);
     anchor = reinterpret_cast<AnchorFunc>(&PostManageSiteFontFace);
     anchor = reinterpret_cast<AnchorFunc>(&DeleteManageSiteFontFace);
+    // Phase 9 — theme bundles, plus the route their images are served from.
+    anchor = reinterpret_cast<AnchorFunc>(&GetSiteAsset);
+    anchor = reinterpret_cast<AnchorFunc>(&GetManageSiteThemeBundle);
+    anchor = reinterpret_cast<AnchorFunc>(&PostManageSiteThemeBundleValidate);
+    anchor = reinterpret_cast<AnchorFunc>(&PostManageSiteThemeBundle);
     anchor = reinterpret_cast<AnchorFunc>(&UpdateItem);
 
     // Phase 0.2a (H8): account/user + photo endpoints extracted from the app.

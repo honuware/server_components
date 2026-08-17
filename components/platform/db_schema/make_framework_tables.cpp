@@ -26,6 +26,7 @@
 #include "permissions.h"
 #include "people.h"
 #include "photos.h"
+#include "site_assets.h"
 #include "site_fonts.h"
 #include "role_assignments.h"
 #include "role_permissions.h"
@@ -86,6 +87,11 @@ namespace DbSchema {
 		MakeSiteFontSourcesTable(databaseInfo);
 		MakeSiteFontsTable(databaseInfo);
 		MakeSiteFontFacesTable(databaseInfo);
+
+		// Tenant Theming Phase 9: images a theme bundle carries with it (a logo,
+		// a favicon, a hero). Referenced by name from a URL slot, so no ordering
+		// constraint against anything else.
+		MakeSiteAssetsTable(databaseInfo);
 
 		MakeIdempotencyKeysTable(databaseInfo);
 

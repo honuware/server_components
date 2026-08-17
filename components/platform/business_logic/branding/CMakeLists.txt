@@ -11,11 +11,41 @@ target_sources(honuware_platform PRIVATE
     site_theme_tokens.cpp
     site_font_inventory.h
     site_font_inventory.cpp
+    # Phase 9 — a whole look as a portable artifact (theme bundles).
+    theme_bundle.h
+    theme_bundle_assets.h
+    theme_bundle_assets.cpp
+    theme_bundle_sections.h
+    theme_bundle_sections.cpp
+    theme_bundle_migrations.h
+    theme_bundle_migrations.cpp
+    theme_bundle_json.h
+    theme_bundle_json.cpp
+    theme_bundle_export.h
+    theme_bundle_export.cpp
+    theme_bundle_import.h
+    theme_bundle_import.cpp
+    theme_bundle_zip.h
+    theme_bundle_zip.cpp
+    theme_bundle_directory.h
+    theme_bundle_directory.cpp
 )
+
+# The .zip transport for theme bundles (Phase 9 / OQ-TF1). Deliberately a
+# library rather than a hand-rolled reader: the parsing side takes untrusted
+# input from a file picker.
+target_link_libraries(honuware_platform PUBLIC ${LIBZIP_LIB})
 
 target_sources(${HONUWARE_TESTS_TARGET} PUBLIC
     site_value_validation_test.cpp
     site_content_slots_test.cpp
     site_theme_tokens_test.cpp
     site_font_inventory_test.cpp
+    theme_bundle_assets_test.cpp
+    theme_bundle_sections_test.cpp
+    theme_bundle_migrations_test.cpp
+    theme_bundle_json_test.cpp
+    theme_bundle_round_trip_test.cpp
+    theme_bundle_zip_test.cpp
+    theme_bundle_directory_test.cpp
 )

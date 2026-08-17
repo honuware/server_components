@@ -35,6 +35,10 @@ libraries = [
     Library("libpqxx", "7.10.5", CMakeInfo("libpqxx", "libpqxx::pqxx", "PQXX_LIB")),
     Library("libsodium", "1.0.20", CMakeInfo("libsodium", "libsodium::libsodium")),
     Library("libtiff", "4.6.0", CMakeInfo("TIFF", "TIFF::TIFF")),
+    # Tenant Theming Phase 9 — theme bundles travel as a .zip through the admin
+    # page. Deliberately not hand-rolled: the READER parses untrusted input,
+    # which is the wrong place to save a dependency.
+    Library("libzip", "1.10.1", CMakeInfo("libzip", "libzip::zip")),
     Library("mailio", "0.25.3", CMakeInfo("mailio", "mailio::mailio")),
     # NOTE the capitalisation: Conan's openssl recipe sets cmake_file_name="OpenSSL",
     # so CMakeDeps emits OpenSSLConfig.cmake. find_package() filename lookup is

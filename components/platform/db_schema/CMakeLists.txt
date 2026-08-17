@@ -51,6 +51,8 @@ target_sources(honuware_platform
     permission_implications.cpp
     photos.h
     photos.cpp
+    site_assets.h
+    site_assets.cpp
     site_fonts.h
     site_fonts.cpp
     role_assignments.h
