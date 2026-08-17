@@ -78,45 +78,66 @@ Json::Value RunImport(
         return {};
     }
 
+    // A refused import has to ROLL BACK, and RunInTransaction commits whenever
+    // its lambda returns normally — it only rolls back on an exception. The
+    // import writes the framework half (secrets, fonts) before handing control
+    // to an app section, so a section that refuses would otherwise leave those
+    // writes committed while the response said the import failed: half a theme,
+    // and the studio told it got none.
+    //
+    // So the failure path throws, and the report is carried out on the
+    // exception rather than assigned across the boundary.
+    struct ImportRefused : std::runtime_error {
+        Branding::BundleImportReport report;
+        explicit ImportRefused(Branding::BundleImportReport r)
+            : std::runtime_error(r.error), report(std::move(r)) {}
+    };
+
     Json::Value result;
-    tp->RunInTransaction([&](Transaction& transaction) {
-        if (!RequireAdmin(endpointAuthHelper, transaction, resp)) {
-            return;
-        }
-        if (req.body.empty()) {
-            resp = ErrorResponse::BadRequest("No theme file in the request.");
-            return;
-        }
+    try {
+        tp->RunInTransaction([&](Transaction& transaction) {
+            if (!RequireAdmin(endpointAuthHelper, transaction, resp)) {
+                return;
+            }
+            if (req.body.empty()) {
+                resp = ErrorResponse::BadRequest("No theme file in the request.");
+                return;
+            }
 
-        Json::Value json;
-        std::map<std::string, std::string> assets;
-        const std::string zipError =
-            Branding::ThemeBundleFromZip(req.body, json, assets);
-        if (!zipError.empty()) {
-            // A studio's mis-typed or truncated file is a 400, never a 500.
-            resp = ErrorResponse::BadRequest(zipError);
-            return;
-        }
+            Json::Value json;
+            std::map<std::string, std::string> assets;
+            const std::string zipError =
+                Branding::ThemeBundleFromZip(req.body, json, assets);
+            if (!zipError.empty()) {
+                // A studio's mis-typed or truncated file is a 400, never a 500.
+                // Nothing has been written yet, so returning is safe here.
+                resp = ErrorResponse::BadRequest(zipError);
+                return;
+            }
 
-        Branding::ThemeBundleImportOptions options = OptionsFrom(req);
-        options.dryRun = dryRun;
-        Branding::BundleImportReport report = Branding::ImportThemeBundleJson(
-            endpointAuthHelper.GetDatabaseHelper(), transaction,
-            *endpointAuthHelper.GetSecretsHelper(), json, assets, options);
+            Branding::ThemeBundleImportOptions options = OptionsFrom(req);
+            options.dryRun = dryRun;
+            Branding::BundleImportReport report = Branding::ImportThemeBundleJson(
+                endpointAuthHelper.GetDatabaseHelper(), transaction,
+                *endpointAuthHelper.GetSecretsHelper(), json, assets, options);
 
-        result = Branding::BundleImportReportToJson(report);
-        if (!report.ok) {
-            // The report travels WITH the refusal, because the interesting part
-            // of a rejection is which keys or sections caused it — a bare
-            // message would throw that away.
-            resp = ErrorResponse::ValidationError(report.error);
-            resp.set_header("Content-Type", "application/json");
-            resp.write(result.ToString());
-            resp.code = 400;
-            return;
-        }
-        resp.code = 200;
-    });
+            if (!report.ok) {
+                throw ImportRefused(std::move(report));
+            }
+            result = Branding::BundleImportReportToJson(report);
+            resp.code = 200;
+        });
+    }
+    catch (const ImportRefused& refused) {
+        // The report travels WITH the refusal: the interesting part of a
+        // rejection is which keys or sections caused it, and a bare message
+        // would throw that away.
+        result = Branding::BundleImportReportToJson(refused.report);
+        resp = ErrorResponse::ValidationError(refused.report.error);
+        resp.set_header("Content-Type", "application/json");
+        resp.write(result.ToString());
+        resp.code = 400;
+    }
 
     return result;
 }

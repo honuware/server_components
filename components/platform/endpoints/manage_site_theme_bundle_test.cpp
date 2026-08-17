@@ -227,6 +227,53 @@ TEST(ManageSiteThemeBundleTest, AnEmptyBodyIs400) {
     Auth::ServerConfig::Shutdown();
 }
 
+TEST(ManageSiteThemeBundleTest, ARefusedImportRollsBackTheFrameworkHalf) {
+    // The import writes secrets and fonts BEFORE handing control to an app
+    // section. RunInTransaction commits whenever its lambda returns normally,
+    // so a section that refuses used to leave those writes committed while the
+    // response said the import failed — half a theme, and the studio told it
+    // got none. The failure path has to throw.
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("BundleRollback", [&](Transaction& transaction) {
+        Branding::ClearThemeBundleSectionsForTest();
+        EndpointTestHelper endpointHelper(transaction, testDb);
+        SignIn(transaction, testDb, endpointHelper, /*makeAdmin=*/true);
+        auto secrets = endpointHelper.GetSecretsHelper();
+        secrets->AddSecret(transaction, "site_theme_primary", "#e8743b");
+
+        crow::response download = Call(
+            endpointHelper, crow::HTTPMethod::Get, "/api/manage/site_theme_bundle");
+        ASSERT_EQ(download.code, 200);
+
+        // A section that always refuses, registered AFTER the export so the
+        // bundle carries its body.
+        Branding::RegisterThemeBundleSection(
+            "page_content",
+            [](Branding::SectionContext&, Json::Value& out) {
+                out = Json::Value(Json::JsonObject{});
+                return std::string();
+            },
+            [](Branding::SectionContext&, const Json::Value&, bool) {
+                return std::string("home section 2 has an unknown kind");
+            });
+        crow::response withSection = Call(
+            endpointHelper, crow::HTTPMethod::Get, "/api/manage/site_theme_bundle");
+        ASSERT_EQ(withSection.code, 200);
+
+        secrets->AddSecret(transaction, "site_theme_primary", "#000000");
+        crow::response resp = Call(
+            endpointHelper, crow::HTTPMethod::Post,
+            "/api/manage/site_theme_bundle", withSection.body);
+
+        EXPECT_EQ(resp.code, 400);
+        EXPECT_NE(resp.body.find("unknown kind"), std::string::npos);
+        Branding::ClearThemeBundleSectionsForTest();
+    });
+    Auth::ServerConfig::Shutdown();
+}
+
 TEST(ManageSiteThemeBundleTest, StrictIsTheDefaultAndLenientIsAQueryFlag) {
     Auth::ServerConfig::Shutdown();
     Auth::ServerConfig::InitializeTestMode();

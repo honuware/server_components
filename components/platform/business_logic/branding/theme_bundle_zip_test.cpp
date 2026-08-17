@@ -1,8 +1,11 @@
 #include "business_logic/branding/theme_bundle_zip.h"
 
 #include <string>
+#include <utility>
+#include <vector>
 
 #include <gtest/gtest.h>
+#include <zip.h>
 
 #include "business_logic/branding/theme_bundle_assets.h"
 #include "business_logic/branding/theme_bundle_json.h"
@@ -81,19 +84,95 @@ TEST(ThemeBundleZipTest, RefusesATruncatedArchiveRatherThanCrashing) {
     EXPECT_NE(ThemeBundleFromZip(zip.substr(0, zip.size() / 2), json, assets), "");
 }
 
-TEST(ThemeBundleZipTest, RefusesAnArchiveWithNoThemeJson) {
-    ThemeBundle bundle;
-    bundle.formatVersion = CurrentBundleFormatVersion();
-    const std::string zip = ThemeBundleToZip(bundle);
-    ASSERT_FALSE(zip.empty());
+// Builds an archive with arbitrary entry names, which our own writer refuses to
+// produce. Needed to test the READER against the shapes an attacker would send.
+std::string MakeRawZip(
+    const std::vector<std::pair<std::string, std::string>>& entries) {
+    zip_error_t error;
+    zip_error_init(&error);
+    zip_source_t* source = zip_source_buffer_create(nullptr, 0, 0, &error);
+    if (!source) return {};
+    zip_source_keep(source);
+    zip_t* archive = zip_open_from_source(source, ZIP_TRUNCATE, &error);
+    if (!archive) { zip_source_free(source); return {}; }
 
-    // Strip the manifest by rebuilding without it is awkward; instead prove the
-    // reader's requirement directly against an archive that has only an asset.
-    // (Our writer always includes theme.json, so this documents the guard.)
+    std::vector<std::string> held;
+    held.reserve(entries.size());
+    for (const auto& [name, bytes] : entries) {
+        held.push_back(bytes);
+        zip_source_t* entry =
+            zip_source_buffer(archive, held.back().data(), held.back().size(), 0);
+        zip_file_add(archive, name.c_str(), entry, ZIP_FL_ENC_UTF_8);
+    }
+    zip_close(archive);
+
+    std::string result;
+    if (zip_source_open(source) == 0) {
+        char buffer[16384];
+        for (;;) {
+            const zip_int64_t read = zip_source_read(source, buffer, sizeof(buffer));
+            if (read <= 0) break;
+            result.append(buffer, static_cast<std::size_t>(read));
+        }
+        zip_source_close(source);
+    }
+    zip_source_free(source);
+    return result;
+}
+
+TEST(ThemeBundleZipTest, ReaderRefusesAnEntryThatIsAPath) {
+    // Zip-slip from the READER's side — the side that takes untrusted input.
+    // The writer test above only proves we do not CREATE one.
+    for (const char* name : {"../evil.png", "sub/dir.png", "/etc/passwd"}) {
+        const std::string zip = MakeRawZip({
+            {std::string(kThemeBundleJsonName), R"({"format":"honuware.site-theme"})"},
+            {name, kPng},
+        });
+        ASSERT_FALSE(zip.empty()) << name;
+        Json::Value json;
+        std::map<std::string, std::string> assets;
+        EXPECT_NE(ThemeBundleFromZip(zip, json, assets), "") << name;
+    }
+}
+
+TEST(ThemeBundleZipTest, ReaderRefusesAnArchiveWithNoThemeJson) {
+    const std::string zip = MakeRawZip({{"logo.png", kPng}});
+    ASSERT_FALSE(zip.empty());
     Json::Value json;
     std::map<std::string, std::string> assets;
-    ASSERT_EQ(ThemeBundleFromZip(zip, json, assets), "");
-    EXPECT_TRUE(assets.empty());
+    const std::string reason = ThemeBundleFromZip(zip, json, assets);
+    EXPECT_NE(reason, "");
+    EXPECT_NE(reason.find("theme.json"), std::string::npos);
+}
+
+TEST(ThemeBundleZipTest, ReaderRefusesTooManyEntries) {
+    std::vector<std::pair<std::string, std::string>> entries{
+        {std::string(kThemeBundleJsonName), R"({"format":"honuware.site-theme"})"}};
+    for (std::size_t i = 0; i <= kMaxBundleAssets + 1; ++i) {
+        entries.push_back({"asset" + std::to_string(i) + ".png", kPng});
+    }
+    const std::string zip = MakeRawZip(entries);
+    ASSERT_FALSE(zip.empty());
+    Json::Value json;
+    std::map<std::string, std::string> assets;
+    EXPECT_NE(ThemeBundleFromZip(zip, json, assets), "");
+}
+
+TEST(ThemeBundleZipTest, ReaderRefusesAnOversizedEntryBeforeExpandingIt) {
+    // A zip bomb is refused on its DECLARED size, not after being expanded into
+    // memory and then measured.
+    std::string big = std::string("\x89PNG\r\n\x1a\n", 8);
+    big.append(kMaxBundleAssetBytes + 1024, 'x');
+    const std::string zip = MakeRawZip({
+        {std::string(kThemeBundleJsonName), R"({"format":"honuware.site-theme"})"},
+        {"huge.png", big},
+    });
+    ASSERT_FALSE(zip.empty());
+    Json::Value json;
+    std::map<std::string, std::string> assets;
+    const std::string reason = ThemeBundleFromZip(zip, json, assets);
+    EXPECT_NE(reason, "");
+    EXPECT_NE(reason.find("larger"), std::string::npos);
 }
 
 TEST(ThemeBundleZipTest, AnEmptyBundleStillProducesAReadableArchive) {
