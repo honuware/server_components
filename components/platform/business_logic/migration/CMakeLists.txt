@@ -23,4 +23,5 @@ target_sources(${HONUWARE_TESTS_TARGET}
     migration_namespace_test.cpp
     migrate_command_test.cpp
     migration_runner_test.cpp
+    framework_migrations_test.cpp
 )
