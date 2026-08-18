@@ -156,6 +156,96 @@ TEST(DateTimeUtilTest, EndOfContainingMonthUsDecember) {
     EXPECT_EQ(result, ExpectedUsUtcDate(2026, 1, 1));
 }
 
+// ── LocalWallClockToUs ──
+
+namespace {
+
+// Microseconds for a UTC instant, so a test can state the moment it means
+// without depending on any of the functions under test.
+int64_t UtcUs(int y, unsigned m, unsigned d, int hour, int minute = 0) {
+    auto tp = date::sys_days{date::year{y}/date::month{m}/date::day{d}}
+        + std::chrono::hours{hour} + std::chrono::minutes{minute};
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+        tp.time_since_epoch()).count();
+}
+
+}  // namespace
+
+TEST(DateTimeUtilTest, LocalWallClockToUsResolvesAWallClockTime) {
+    // Any instant during June 10 2026 Pacific; ask for 10:00 local.
+    // PDT is UTC-7 in June, so 10:00 PDT = 17:00 UTC.
+    int64_t anyMomentThatDay = UtcUs(2026, 6, 10, 20);  // 1 PM PDT
+    int64_t result = LocalWallClockToUs(
+        anyMomentThatDay, 10 * 60, "America/Los_Angeles");
+    EXPECT_EQ(result, UtcUs(2026, 6, 10, 17));
+}
+
+TEST(DateTimeUtilTest, LocalWallClockToUsIsIndependentOfTheTimeOfDayPassedIn) {
+    // Only the local DAY of the input matters — the function must not carry
+    // any of the input's time-of-day through.
+    const int64_t morning = UtcUs(2026, 6, 10, 16);   // 9 AM PDT
+    const int64_t evening = UtcUs(2026, 6, 10, 23);   // 4 PM PDT
+    EXPECT_EQ(LocalWallClockToUs(morning, 18 * 60, "America/Los_Angeles"),
+              LocalWallClockToUs(evening, 18 * 60, "America/Los_Angeles"));
+}
+
+TEST(DateTimeUtilTest, GetMidnightUsIsCorrectOnASpringForwardDay) {
+    // Regression: GetMidnightUs used to inherit tm_isdst from the SOURCE
+    // instant. Asked for midnight from an afternoon on a spring-forward day,
+    // the flag said "DST" (true of the afternoon, false of midnight), so
+    // mktime read 00:00 as PDT when it was PST and returned an instant an hour
+    // early — 23:00 the previous day. Two days a year, silently.
+    //
+    // US DST begins Sunday 8 March 2026 at 02:00. Local midnight that day is
+    // still PST (UTC-8) = 08:00 UTC.
+    const int64_t afternoon = UtcUs(2026, 3, 8, 20);  // 1 PM PDT
+    EXPECT_EQ(GetMidnightUs(afternoon, "America/Los_Angeles"),
+              UtcUs(2026, 3, 8, 8));
+
+    // The existing March-14 test passes either way because both the source and
+    // midnight are PDT — which is exactly why the bug survived.
+}
+
+TEST(DateTimeUtilTest, LocalWallClockToUsIsCorrectOnASpringForwardDay) {
+    // THE reason this function exists. US DST begins Sunday 8 March 2026: the
+    // clock jumps 02:00 → 03:00, so that local day is 23 hours long and
+    // wall-clock 10:00 is only NINE elapsed hours after local midnight.
+    //
+    // 10:00 PDT (UTC-7) = 17:00 UTC.
+    int64_t during = UtcUs(2026, 3, 8, 20);
+    int64_t result = LocalWallClockToUs(during, 10 * 60, "America/Los_Angeles");
+    EXPECT_EQ(result, UtcUs(2026, 3, 8, 17));
+
+    // And the naive form is wrong by exactly the skipped hour — pinned so the
+    // implementation can never quietly regress to midnight + minutes.
+    int64_t naive = GetMidnightUs(during, "America/Los_Angeles")
+        + static_cast<int64_t>(10 * 60) * 60 * 1000000LL;
+    EXPECT_NE(naive, result);
+    EXPECT_EQ(naive - result, 3600LL * 1000000LL);
+}
+
+TEST(DateTimeUtilTest, LocalWallClockToUsIsCorrectOnAFallBackDay) {
+    // US DST ends Sunday 1 November 2026 (25-hour local day). 10:00 PST
+    // (UTC-8) = 18:00 UTC.
+    int64_t during = UtcUs(2026, 11, 1, 20);
+    EXPECT_EQ(LocalWallClockToUs(during, 10 * 60, "America/Los_Angeles"),
+              UtcUs(2026, 11, 1, 18));
+}
+
+TEST(DateTimeUtilTest, LocalWallClockToUsAgreesWithMidnightAtZeroMinutes) {
+    int64_t during = UtcUs(2026, 6, 10, 20);
+    EXPECT_EQ(LocalWallClockToUs(during, 0, "America/Los_Angeles"),
+              GetMidnightUs(during, "America/Los_Angeles"));
+}
+
+TEST(DateTimeUtilTest, LocalWallClockToUsHandlesAZoneWithoutDst) {
+    // Phoenix never shifts, so 10:00 local is always 17:00 UTC.
+    EXPECT_EQ(LocalWallClockToUs(UtcUs(2026, 6, 10, 20), 10 * 60, "America/Phoenix"),
+              UtcUs(2026, 6, 10, 17));
+    EXPECT_EQ(LocalWallClockToUs(UtcUs(2026, 12, 10, 20), 10 * 60, "America/Phoenix"),
+              UtcUs(2026, 12, 10, 17));
+}
+
 // ── Timezone-aware formatting tests ──
 
 TEST(DateTimeUtilTest, FormatTimeWithPacificTimezone) {

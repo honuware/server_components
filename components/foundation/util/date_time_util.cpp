@@ -318,6 +318,15 @@ int64_t GetMidnightUs(int64_t timestampUs, std::string_view timezone) {
     localTm.tm_hour = 0;
     localTm.tm_min = 0;
     localTm.tm_sec = 0;
+    // -1 = "decide DST from the zone's rules for THIS local time".
+    //
+    // Without this the flag carried over from `timestampUs`, which is wrong
+    // whenever the source instant and local midnight sit on opposite sides of
+    // a transition. On a spring-forward day, noon PDT gave tm_isdst = 1, so
+    // mktime interpreted midnight as PDT (UTC-7) when it was really PST
+    // (UTC-8) — the returned "midnight" was an hour early, i.e. 23:00 the
+    // previous day. Two days a year, silently.
+    localTm.tm_isdst = -1;
 
     // Convert back to epoch. We need to use the timezone again.
     std::string posixTz = IanaToPosixTz(timezone);
@@ -340,6 +349,41 @@ int64_t GetMidnightUs(int64_t timestampUs, std::string_view timezone) {
 #endif
 
     return static_cast<int64_t>(midnightEpoch) * 1000000LL;
+}
+
+int64_t LocalWallClockToUs(
+    int64_t dayTimestampUs, int minutesAfterMidnight, std::string_view timezone) {
+    std::lock_guard<std::mutex> lock(tzMutex);
+    struct tm localTm = ToLocalTm(dayTimestampUs, timezone);
+    localTm.tm_hour = minutesAfterMidnight / 60;
+    localTm.tm_min = minutesAfterMidnight % 60;
+    localTm.tm_sec = 0;
+    // -1 = "work out whether DST is in effect for this local time". Leaving the
+    // value carried over from the source timestamp would apply the WRONG offset
+    // whenever the source and target instants sit on opposite sides of a
+    // transition, which is the entire reason this function exists.
+    localTm.tm_isdst = -1;
+
+    std::string posixTz = IanaToPosixTz(timezone);
+#ifdef _WIN32
+    _putenv_s("TZ", posixTz.c_str());
+    _tzset();
+    time_t epoch = mktime(&localTm);
+    _putenv_s("TZ", "");
+    _tzset();
+#else
+    std::string oldTz;
+    const char* prevTz = std::getenv("TZ");
+    if (prevTz) oldTz = prevTz;
+    setenv("TZ", posixTz.c_str(), 1);
+    tzset();
+    time_t epoch = mktime(&localTm);
+    if (prevTz) setenv("TZ", oldTz.c_str(), 1);
+    else unsetenv("TZ");
+    tzset();
+#endif
+
+    return static_cast<int64_t>(epoch) * 1000000LL;
 }
 
 }  // namespace DateTimeUtil

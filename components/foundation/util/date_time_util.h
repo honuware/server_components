@@ -39,4 +39,16 @@ int GetDayOfWeek(int64_t timestampUs, std::string_view timezone);
 // timestamp in the specified timezone.
 int64_t GetMidnightUs(int64_t timestampUs, std::string_view timezone);
 
+// The absolute timestamp of a WALL-CLOCK time on the local day containing
+// `dayTimestampUs`. `minutesAfterMidnight` is local wall clock (600 = 10:00),
+// matching how class_schedule_slots.start_time_minutes is stored.
+//
+// This is NOT `GetMidnightUs(...) + minutes` — that is wrong across a DST
+// transition. On a spring-forward day the clock jumps 02:00 → 03:00, so
+// wall-clock 10:00 is only NINE elapsed hours after midnight and the naive sum
+// lands an hour late. mktime with tm_isdst = -1 resolves the offset from the
+// zone's rules instead of assuming every day is 24 hours.
+int64_t LocalWallClockToUs(
+    int64_t dayTimestampUs, int minutesAfterMidnight, std::string_view timezone);
+
 }
