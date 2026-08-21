@@ -183,7 +183,15 @@ Json::Value GetManageSiteFonts(
         TableHelpers::SiteFonts fonts(endpointAuthHelper.GetDatabaseHelper());
 
         Json::JsonArray sources;
+        // Families are emitted with the source's KEY as well as the raw FK id:
+        // source_key is the handle the PUT payload and the editor's service
+        // picker use, so a family must round-trip it or the UI loads with the
+        // service unselected (the "I have to re-pick Google on every visit"
+        // bug).
+        std::map<std::string, std::string> sourceKeyById;
         for (const KeyValueTable& row : fonts.GetAllSources(transaction)) {
+            sourceKeyById[ValueOr(row, DbSchema::kSiteFontSourceId)] =
+                ValueOr(row, DbSchema::kSiteFontSourceKey);
             sources.push_back(Json::Value(Json::JsonObject{
                 {"id", Json::Value(ValueOr(row, DbSchema::kSiteFontSourceId))},
                 {"source_key", Json::Value(ValueOr(row, DbSchema::kSiteFontSourceKey))},
@@ -207,12 +215,19 @@ Json::Value GetManageSiteFonts(
                     {"format", Json::Value(ValueOr(face, DbSchema::kSiteFontFaceFormat))},
                 }));
             }
+            std::string fontSourceId =
+                ValueOr(row, DbSchema::kSiteFontFontSourceId);
+            auto sourceKeyIt = sourceKeyById.find(fontSourceId);
             families.push_back(Json::Value(Json::JsonObject{
                 {"id", Json::Value(fontId)},
                 {"family", Json::Value(ValueOr(row, DbSchema::kSiteFontFamily))},
                 {"fallback", Json::Value(ValueOr(row, DbSchema::kSiteFontFallback))},
                 {"source_kind", Json::Value(ValueOr(row, DbSchema::kSiteFontSourceKind))},
-                {"font_source_id", Json::Value(ValueOr(row, DbSchema::kSiteFontFontSourceId))},
+                {"font_source_id", Json::Value(fontSourceId)},
+                {"source_key",
+                 Json::Value(sourceKeyIt == sourceKeyById.end()
+                                 ? std::string()
+                                 : sourceKeyIt->second)},
                 {"spec", Json::Value(ValueOr(row, DbSchema::kSiteFontSpec))},
                 {"ordinal", Json::Value(ValueOr(row, DbSchema::kSiteFontOrdinal))},
                 {"faces", Json::Value(faces)},

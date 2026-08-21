@@ -148,8 +148,12 @@ TEST(ManageSiteFontsTest, SavesAndReadsBackSourcesAndFamilies) {
         EXPECT_EQ(body["families"][0]["fallback"].Get<std::string>(), "sans-serif");
         EXPECT_EQ(body["families"][0]["spec"].Get<std::string>(),
                   "family=Barlow:wght@100..900");
-        // The family points at the source that was just created.
+        // The family points at the source that was just created — by raw id
+        // AND by key. source_key is what the editor's service picker binds, so
+        // omitting it from the GET is the "service resets on every visit" bug.
         EXPECT_NE(body["families"][0]["font_source_id"].Get<std::string>(), "");
+        EXPECT_EQ(body["families"][0]["source_key"].Get<std::string>(),
+                  "google");
     });
     Auth::ServerConfig::Shutdown();
 }
