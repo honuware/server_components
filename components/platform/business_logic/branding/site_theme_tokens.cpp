@@ -155,6 +155,23 @@ const std::vector<ThemeToken>& SiteThemeTokens() {
          ThemeTokenGroup::TypeScale, "Heavier again — used sparingly."},
         {"site_theme_weight_bold", "--weight-bold", ThemeTokenType::Weight,
          ThemeTokenGroup::TypeScale, "Headings, buttons and badges. 700 is bold."},
+
+        // ---- Weight ROLES (Polish Phase 2) — which weight a surface uses,
+        // decoupled from what the scale steps above mean. Before these, the
+        // menu was welded to the semibold step: making the menu lighter meant
+        // redefining semibold for every heading, button and badge at once.
+        // They sit in the TypeScale group (not FontRole) deliberately: the
+        // editor renders that group in "How text looks", where the specimen
+        // previews them live.
+        {"site_theme_weight_menu", "--weight-menu", ThemeTokenType::Weight,
+         ThemeTokenGroup::TypeScale,
+         "Menu items in the top bar. 600 is semi bold."},
+        {"site_theme_weight_heading", "--weight-heading", ThemeTokenType::Weight,
+         ThemeTokenGroup::TypeScale,
+         "Headings and bold text throughout the site."},
+        {"site_theme_weight_display", "--weight-display", ThemeTokenType::Weight,
+         ThemeTokenGroup::TypeScale,
+         "The biggest page titles and hero lines."},
     };
     return tokens;
 }

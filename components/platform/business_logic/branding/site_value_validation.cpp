@@ -119,7 +119,11 @@ bool IsValidCssLength(std::string_view value) {
         return false;
     }
     std::string_view unit = value.substr(i);
-    return unit == "px" || unit == "rem" || unit == "em" || unit == "%";
+    // pt joined the set for the type-scale editor's rem/px/pt unit toggle
+    // (Polish Phase 2) — without it a pt size would save and then be silently
+    // dropped from site_info on the read path.
+    return unit == "px" || unit == "rem" || unit == "em" || unit == "%" ||
+           unit == "pt";
 }
 
 bool IsValidFontFamilyList(std::string_view value) {

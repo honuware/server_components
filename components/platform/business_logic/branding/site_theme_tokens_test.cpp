@@ -77,6 +77,28 @@ TEST(SiteThemeTokensTest, CarriesTheRoleRadiusAndTypeTokens) {
     EXPECT_EQ(Find("site_theme_font_body")->type, ThemeTokenType::FontFamily);
 }
 
+TEST(SiteThemeTokensTest, CarriesTheWeightRoleTokens) {
+    // Polish Phase 2 — per-surface weight roles, decoupled from the scale
+    // steps. Before these, the menu was welded to the semibold step: making
+    // the menu lighter meant redefining semibold everywhere at once. They live
+    // in the TypeScale group so the editor's "How text looks" section renders
+    // and previews them with the other weights.
+    for (const char* key : {"site_theme_weight_menu",
+                            "site_theme_weight_heading",
+                            "site_theme_weight_display"}) {
+        const ThemeToken* token = Find(key);
+        ASSERT_TRUE(token != nullptr) << key;
+        EXPECT_EQ(token->type, ThemeTokenType::Weight) << key;
+        EXPECT_EQ(token->group, ThemeTokenGroup::TypeScale) << key;
+        EXPECT_FALSE(token->description.empty()) << key;
+    }
+    EXPECT_EQ(Find("site_theme_weight_menu")->cssVariable, "--weight-menu");
+    EXPECT_EQ(Find("site_theme_weight_heading")->cssVariable,
+              "--weight-heading");
+    EXPECT_EQ(Find("site_theme_weight_display")->cssVariable,
+              "--weight-display");
+}
+
 // --- per-type validation ---
 
 TEST(SiteThemeTokensTest, ColorTokensTakeHexOnly) {
@@ -90,6 +112,8 @@ TEST(SiteThemeTokensTest, LengthTokensTakeANumberAndAUnit) {
     EXPECT_TRUE(IsValidThemeTokenValue(ThemeTokenType::Length, "0.5rem"));
     EXPECT_TRUE(IsValidThemeTokenValue(ThemeTokenType::Length, "0"));
     EXPECT_TRUE(IsValidThemeTokenValue(ThemeTokenType::Length, "9999px"));
+    // pt is first-class for the type-scale unit toggle (Polish Phase 2).
+    EXPECT_TRUE(IsValidThemeTokenValue(ThemeTokenType::Length, "13.5pt"));
     EXPECT_FALSE(IsValidThemeTokenValue(ThemeTokenType::Length, "8"));
     EXPECT_FALSE(IsValidThemeTokenValue(ThemeTokenType::Length, "calc(8px + 1px)"));
     EXPECT_FALSE(IsValidThemeTokenValue(ThemeTokenType::Length, "var(--x)"));
@@ -142,6 +166,22 @@ TEST(SiteThemeTokensTest, LoadSiteThemeKeysByCssVariableNotBySecretKey) {
         EXPECT_EQ(theme["--palette-primary-400"], "#0B6E4F");
         EXPECT_EQ(theme["--radius-card"], "2px");
         EXPECT_EQ(theme.count("site_theme_radius_card"), 0u);
+    });
+}
+
+TEST(SiteThemeTokensTest, LoadSiteThemeServesAWeightRoleOverride) {
+    // Polish Phase 2 end to end on the read path: a studio that sets the menu
+    // weight to Light gets `--weight-menu: 300` in site_info's theme object;
+    // a pt-sized scale step survives too (the unit-toggle case).
+    auto secrets = Secrets::Test::MakeTestSecretsHelper();
+    secrets->AddSecretTest("site_theme_weight_menu", "300");
+    secrets->AddSecretTest("site_theme_text_base", "12pt");
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("ThemeWeightRole", [&](Transaction& transaction) {
+        KeyValueTable theme = LoadSiteTheme(*secrets, transaction);
+        EXPECT_EQ(theme["--weight-menu"], "300");
+        EXPECT_EQ(theme["--text-base"], "12pt");
     });
 }
 

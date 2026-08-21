@@ -74,6 +74,10 @@ TEST(SiteValueValidationTest, CssLengthAcceptsNumbersWithAKnownUnit) {
     EXPECT_TRUE(IsValidCssLength("9999px"));
     // A bare zero is the one unitless length CSS allows.
     EXPECT_TRUE(IsValidCssLength("0"));
+    // Polish Phase 2 — the type-scale editor offers a rem/px/pt unit toggle,
+    // so pt is a first-class size unit now.
+    EXPECT_TRUE(IsValidCssLength("12pt"));
+    EXPECT_TRUE(IsValidCssLength("13.5pt"));
 }
 
 TEST(SiteValueValidationTest, CssLengthRejectsFunctionSyntaxAndBareNumbers) {
@@ -83,7 +87,6 @@ TEST(SiteValueValidationTest, CssLengthRejectsFunctionSyntaxAndBareNumbers) {
     EXPECT_FALSE(IsValidCssLength("var(--radius-card)"));
     EXPECT_FALSE(IsValidCssLength("8"));
     EXPECT_FALSE(IsValidCssLength("px"));
-    EXPECT_FALSE(IsValidCssLength("8pt"));
     EXPECT_FALSE(IsValidCssLength("8px; color:red"));
     EXPECT_FALSE(IsValidCssLength(""));
     EXPECT_FALSE(IsValidCssLength("-8px"));
