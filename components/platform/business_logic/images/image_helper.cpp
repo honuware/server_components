@@ -253,6 +253,8 @@ std::optional<PhotoData> ImageHelper::GetSourcePhotoData(
     data.type = instanceRow.at("type");
     data.width = std::stoi(instanceRow.at("width"));
     data.height = std::stoi(instanceRow.at("height"));
+    // Carried so GET /api/get_photo can answer a conditional request.
+    data.lastUpdatedAtUs = sourceInfo->lastUpdatedAtUs;
     return data;
 }
 

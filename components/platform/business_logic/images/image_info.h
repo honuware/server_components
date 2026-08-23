@@ -32,6 +32,11 @@ struct PhotoData {
     std::string type;
     int width = 0;
     int height = 0;
+    // The SOURCE photo's last-updated stamp, for HTTP revalidation — the same
+    // validator ScaledPhotoResult carries. Defaulted, so the paths that build a
+    // PhotoData without one (a freshly resized buffer) are unaffected; only
+    // GetSourcePhotoData fills it in.
+    int64_t lastUpdatedAtUs = 0;
 };
 
 struct UploadResult {

@@ -120,9 +120,70 @@ TEST(GetPhotoTest, GetPhotoSuccess) {
 
         EXPECT_EQ(resp.code, 200);
         EXPECT_EQ(resp.get_header_value("Content-Type"), "image/jpeg");
-        EXPECT_EQ(resp.get_header_value("Cache-Control"),
-            "public, max-age=86400");
+        // `private` because this endpoint is authenticated for every table it
+        // serves — a shared cache must never store a permission-gated image.
+        // `no-cache` so a replaced photo shows up immediately instead of after
+        // the day-long max-age this used to send.
+        EXPECT_EQ(resp.get_header_value("Cache-Control"), "private, no-cache");
+        EXPECT_FALSE(resp.get_header_value("ETag").empty());
         EXPECT_FALSE(resp.body.empty());
+    });
+
+    Auth::ServerConfig::Shutdown();
+}
+
+// The point of the ETag: a repeat view costs a 304 with no body rather than
+// the whole image again.
+TEST(GetPhotoTest, GetPhotoRevalidatesWithIfNoneMatch) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("GetPhotoRevalidates", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+
+        int64_t personId = 0;
+        SetupLoggedInUser(transaction, testDb, endpointHelper, personId);
+
+        TableHelpers::PhotoSupportTables pst(testDb.GetDatabaseHelper());
+        pst.AddPhotoSupportTable(transaction, "people");
+        Images::ImageHelper imageHelper(testDb.GetDatabaseHelper());
+        imageHelper.UploadAndAssociatePhoto(
+            transaction, "people", personId, MakeTestJpeg(64, 48), "jpeg");
+
+        const std::string url =
+            "/api/get_photo/people/" + std::to_string(personId);
+
+        crow::request first;
+        first.method = crow::HTTPMethod::GET;
+        first.url = url;
+        crow::response firstResp;
+        endpointHelper.GetWebApp().GetApp().handle_full(first, firstResp);
+        ASSERT_EQ(firstResp.code, 200);
+        const std::string etag = firstResp.get_header_value("ETag");
+        ASSERT_FALSE(etag.empty());
+
+        // Same ETag back → 304, no body.
+        crow::request second;
+        second.method = crow::HTTPMethod::GET;
+        second.url = url;
+        second.add_header("If-None-Match", etag);
+        crow::response secondResp;
+        endpointHelper.GetWebApp().GetApp().handle_full(second, secondResp);
+        EXPECT_EQ(secondResp.code, 304);
+        EXPECT_TRUE(secondResp.body.empty());
+
+        // A DIFFERENT ETag (the state after someone replaces the image) must
+        // still deliver the bytes — otherwise revalidation would pin the stale
+        // copy forever, which is the bug this whole change is about.
+        crow::request stale;
+        stale.method = crow::HTTPMethod::GET;
+        stale.url = url;
+        stale.add_header("If-None-Match", "\"0\"");
+        crow::response staleResp;
+        endpointHelper.GetWebApp().GetApp().handle_full(stale, staleResp);
+        EXPECT_EQ(staleResp.code, 200);
+        EXPECT_FALSE(staleResp.body.empty());
     });
 
     Auth::ServerConfig::Shutdown();

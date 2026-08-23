@@ -172,22 +172,30 @@ void GetScaledPhoto(
         resp.code = 200;
         resp.set_header("Content-Type",
             "image/" + scaledResult.photo.type);
-        // Cache policy splits on the public/authenticated path:
+        // Cache policy splits on the public/authenticated path. BOTH
+        // sides revalidate; they differ only in who may store the bytes.
         //
-        // - PUBLIC path (`home_page_photos` and any future entry in
-        //   `IsPublicScaledPhotoTable`): the response is fine for any
-        //   anonymous viewer to see, so we permit CloudFront to serve
-        //   it directly from the edge. `public, max-age=3600` means
-        //   the edge AND the browser cache for an hour without hitting
-        //   the origin; a stale carousel image for up to one hour is
-        //   the right tradeoff against the public-site traffic the
-        //   landing page sees. The ETag is still emitted so a
-        //   conditional revalidation (browser or CloudFront origin
-        //   fetch after max-age expires) cheaply returns 304 instead
-        //   of re-sending the image bytes. When an admin needs a
-        //   faster propagation than one hour (rare — replacing a
-        //   carousel photo) they can invalidate the CloudFront
-        //   distribution.
+        // - PUBLIC path (any entry in `IsPublicScaledPhotoTable`):
+        //   `public` lets CloudFront and the browser STORE the image,
+        //   so the bytes still come from the edge rather than the
+        //   origin. `no-cache` makes them ASK first — a conditional
+        //   GET that the ETag above answers with an empty 304.
+        //
+        //   This used to be `max-age=3600`, on the reasoning that a
+        //   stale carousel photo for an hour beat the landing-page
+        //   traffic, and that an admin in a hurry could invalidate the
+        //   CloudFront distribution. That tradeoff no longer holds:
+        //   the public list has grown from carousel photos to
+        //   `products` (service images, event banners, membership tier
+        //   icons), which a studio edits routinely from the admin UI —
+        //   and the escape hatch is useless both to a studio owner
+        //   without AWS access and in local development, where there
+        //   is no CloudFront at all, only a browser cache that ignores
+        //   a rebuilt server for an hour. Replacing an image and being
+        //   told to wait an hour reads as a bug, because it is one.
+        //
+        //   The cost is one conditional request per image per view;
+        //   the payload is a 304 with no body.
         //
         // - AUTHENTICATED path (everything else): the response may
         //   contain user-specific imagery (profile photos, etc.).
@@ -199,7 +207,7 @@ void GetScaledPhoto(
         //   (revalidating on each use), which gives the user's own
         //   tabs free reuse without leaking across users.
         if (isPublicTable) {
-            resp.set_header("Cache-Control", "public, max-age=3600");
+            resp.set_header("Cache-Control", "public, no-cache");
         } else {
             resp.set_header("Cache-Control", "private, no-cache");
         }

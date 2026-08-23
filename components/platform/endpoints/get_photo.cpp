@@ -41,7 +41,7 @@ public:
 
 void GetPhoto(
     EndpointAuthHelper& endpointAuthHelper,
-    const crow::request&,
+    const crow::request& req,
     crow::response& resp,
     std::string_view tableName,
     int64_t tableItemId) {
@@ -82,10 +82,39 @@ void GetPhoto(
             return;
         }
 
+        // Same validator the scaled endpoint uses: the source photo's
+        // last-updated stamp, which changes when the image is replaced.
+        const std::string etag =
+            "\"" + std::to_string(photoData->lastUpdatedAtUs) + "\"";
+        const std::string ifNoneMatch =
+            std::string(req.get_header_value("If-None-Match"));
+        if (!ifNoneMatch.empty() && ifNoneMatch == etag) {
+            resp.code = 304;
+            return;
+        }
+
         resp.code = 200;
         resp.set_header("Content-Type",
             "image/" + photoData->type);
-        resp.set_header("Cache-Control", "public, max-age=86400");
+        // `private, no-cache`, matching the AUTHENTICATED branch of
+        // get_scaled_photo — and note this endpoint is authenticated for
+        // EVERY table it serves (see the login + IsTableAllowed checks
+        // above).
+        //
+        // It used to send `public, max-age=86400`. Both halves were wrong:
+        //
+        // - `public` invites shared caches to store a response that is
+        //   gated on the caller's permissions. That is precisely the
+        //   cross-user leak the scaled endpoint's comment guards against —
+        //   CloudFront could hand one user's profile photo to another.
+        // - `max-age=86400` meant a replaced image stayed stale for a DAY
+        //   with no way for the studio to force it.
+        //
+        // `private` keeps shared caches out; `no-cache` still lets the
+        // user's own browser store the bytes and revalidate cheaply
+        // against the ETag above.
+        resp.set_header("Cache-Control", "private, no-cache");
+        resp.set_header("ETag", etag);
         resp.body.assign(photoData->bytes.begin(), photoData->bytes.end());
     });
 }
