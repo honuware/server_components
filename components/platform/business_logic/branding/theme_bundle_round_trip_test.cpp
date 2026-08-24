@@ -632,7 +632,12 @@ TEST(ThemeBundleRoundTripTest, AMissingAssetTableSkipsImagesInsteadOfThrowing) {
         for (const BundleProblem& problem : report.problems) {
             if (problem.area == "assets" && problem.item.empty()) {
                 sawArea = true;
-                EXPECT_NE(problem.reason.find("image storage"), std::string::npos);
+                // Names the missing TABLE and the fix. Images are a
+                // supported feature — a database without site_assets is one
+                // whose migrations have not been run, and the message has to
+                // say so rather than implying the feature does not exist.
+                EXPECT_NE(problem.reason.find("site_assets"), std::string::npos);
+                EXPECT_NE(problem.reason.find("--migrate"), std::string::npos);
             }
         }
         EXPECT_TRUE(sawArea);
@@ -690,7 +695,7 @@ TEST(ThemeBundleRoundTripTest, StrictRefusesWhenStorageIsMissing) {
             ThemeBundleToJson(bundle), {}, ThemeBundleImportOptions{});
 
         EXPECT_FALSE(report.ok);
-        EXPECT_NE(report.error.find("image storage"), std::string::npos);
+        EXPECT_NE(report.error.find("site_assets"), std::string::npos);
     });
 }
 

@@ -84,12 +84,22 @@ BundleStorage DetectBundleStorage(
     for (const std::string& table : DbMeta::ListTables(transaction)) {
         tables.insert(table);
     }
+    // The messages say WHAT IS WRONG WITH THIS DATABASE and how to fix it.
+    //
+    // They used to read "this site has no image storage yet", which was both
+    // wrong and alarming: images are a supported feature, the table is built
+    // for every new database by MakeFrameworkTables, and an existing database
+    // gets it from framework migration 0001_site_assets. A database without it
+    // is simply one that has not had its migrations run — a five-second fix
+    // that the old wording made sound like a missing product feature.
     BundleStorage storage;
     if (!tables.count(std::string(DbSchema::kSiteAssets))) {
         storage.assets = false;
         AddProblem(problems, "assets", "",
-                   "This site has no image storage yet, so the theme's images "
-                   "were not applied. Everything else in the file was.");
+                   "This database is missing the site_assets table, so the "
+                   "theme's images could not be stored. Everything else in the "
+                   "file was applied. Run the database helper with --migrate to "
+                   "add it, then import the theme again to get the images.");
     }
     // The three font tables are one feature: a family with nowhere to put its
     // faces is not half-usable, it is unusable.
@@ -99,8 +109,10 @@ BundleStorage DetectBundleStorage(
         if (!tables.count(std::string(table))) {
             storage.fonts = false;
             AddProblem(problems, "fonts", "",
-                       "This site has no font storage yet, so the theme's fonts "
-                       "were not applied. Everything else in the file was.");
+                       "This database is missing the site font tables, so the "
+                       "theme's fonts could not be stored. Everything else in "
+                       "the file was applied. Run the database helper with "
+                       "--migrate to add them, then import the theme again.");
             break;
         }
     }
@@ -586,8 +598,9 @@ BundleImportReport ImportThemeBundleJson(
                 // the bundled default and the site still looks like something.
                 AddProblem(report.problems, "content", key,
                            "refers to the image \"" + value +
-                               "\", which could not be stored, so this setting "
-                               "was left at its default.");
+                               "\", which could not be stored (see above), so "
+                               "this setting was left at its default rather "
+                               "than pointing at an image that is not there.");
                 value.clear();
             } else {
                 value = std::string(kThemeBundleAssetUrlPrefix) + value;
