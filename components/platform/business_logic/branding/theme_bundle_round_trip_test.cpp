@@ -592,10 +592,14 @@ TEST(ThemeBundleRoundTripTest, LenientKeepsTheGoodFontsAndDropsTheBrokenOne) {
     });
 }
 
-// THE BUG THIS WORK CAME FROM (Mason, 8/24/2026). A database provisioned before
-// site_assets existed made every import 500 with a SQL fragment in the log and
-// nothing on screen. The area is skipped and reported instead.
-TEST(ThemeBundleRoundTripTest, AMissingAssetTableSkipsImagesInsteadOfThrowing) {
+// THE BUG THIS WORK CAME FROM (Mason, 8/24/2026). A database provisioned
+// before site_assets existed made every theme import 500 with a SQL fragment in
+// the log and nothing on screen.
+//
+// The images are in the zip, and a studio pressing Apply has said everything
+// they need to say — so the import CREATES the table it needs rather than
+// dropping the pictures and telling them to go and run a command-line tool.
+TEST(ThemeBundleRoundTripTest, AMissingAssetTableIsCreatedAndTheImagesLand) {
     ClearThemeBundleSectionsForTest();
     TestDatabaseUtil testDb;
     testDb.RunInTransaction("BundleNoAssetTable", [&](Transaction& transaction) {
@@ -616,40 +620,62 @@ TEST(ThemeBundleRoundTripTest, AMissingAssetTableSkipsImagesInsteadOfThrowing) {
             testDb.GetDatabaseHelper(), transaction, *secrets,
             ThemeBundleToJson(bundle), assets, options);
 
-        // Applied, not thrown, not refused.
-        EXPECT_TRUE(report.ok) << report.error;
-        EXPECT_EQ(secrets->LookupSecret(transaction, Secrets::kSiteBrowserTitle),
-                  "Sunrise Studio");
-        // The count reflects what was ACTUALLY written, so a dry run cannot
-        // promise images it will not place.
-        EXPECT_EQ(report.assetChanges, 0);
-        // The logo slot is left at its default rather than pointing at an image
-        // that was never stored, which would 404 on every page.
-        EXPECT_TRUE(
-            secrets->LookupSecret(transaction, Secrets::kSiteLogoUrl).empty());
+        ASSERT_TRUE(report.ok) << report.error;
+        // NOTHING was skipped — the point of the change.
+        EXPECT_TRUE(report.problems.empty())
+            << "the images are in the file; they should have been stored";
+        EXPECT_EQ(report.assetChanges, 1);
 
-        bool sawArea = false;
-        for (const BundleProblem& problem : report.problems) {
-            if (problem.area == "assets" && problem.item.empty()) {
-                sawArea = true;
-                // Names the missing TABLE and the fix. Images are a
-                // supported feature — a database without site_assets is one
-                // whose migrations have not been run, and the message has to
-                // say so rather than implying the feature does not exist.
-                EXPECT_NE(problem.reason.find("site_assets"), std::string::npos);
-                EXPECT_NE(problem.reason.find("--migrate"), std::string::npos);
-            }
-        }
-        EXPECT_TRUE(sawArea);
+        // The image really is stored, read back through the production reader.
+        TableHelpers::SiteAssets siteAssets(testDb.GetDatabaseHelper());
+        EXPECT_EQ(siteAssets.GetAssetBytes(transaction, "logo.png"), kPng);
+        // ...and the logo slot points at it rather than falling back.
+        EXPECT_EQ(secrets->LookupSecret(transaction, Secrets::kSiteLogoUrl),
+                  "/api/site_asset/logo.png");
     });
 }
 
-// The dry run has to run the SAME storage check, or "validate" says a theme is
-// fine and "apply" then fails — which is exactly how this bug presented.
-TEST(ThemeBundleRoundTripTest, ADryRunReportsTheSameMissingStorageAsAnApply) {
+// The font tables get the same treatment, in foreign-key order — a family with
+// nowhere to put its faces is not half-usable, it is unusable.
+TEST(ThemeBundleRoundTripTest, MissingFontTablesAreCreatedAndTheFontsLand) {
     ClearThemeBundleSectionsForTest();
     TestDatabaseUtil testDb;
-    testDb.RunInTransaction("BundleDryRunStorage", [&](Transaction& transaction) {
+    testDb.RunInTransaction("BundleNoFontTables", [&](Transaction& transaction) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        // Dropped children-first, the reverse of the creation order.
+        transaction.RunSqlStatement("DROP TABLE IF EXISTS site_font_faces");
+        transaction.RunSqlStatement("DROP TABLE IF EXISTS site_fonts");
+        transaction.RunSqlStatement("DROP TABLE IF EXISTS site_font_sources");
+
+        ThemeBundle bundle;
+        bundle.formatVersion = 1;
+        BundleFontFamily family;
+        family.family = "Studio Sans";
+        family.fallback = "serif";
+        family.sourceKind = "uploaded";
+        family.faces = {{700, "normal", "studiosans.woff2"}};
+        bundle.fonts.families.push_back(family);
+
+        ThemeBundleImportOptions options;
+        options.strictness = BundleStrictness::Lenient;
+        std::map<std::string, std::string> assets{{"studiosans.woff2", kWoff2}};
+        BundleImportReport report = ImportThemeBundleJson(
+            testDb.GetDatabaseHelper(), transaction, *secrets,
+            ThemeBundleToJson(bundle), assets, options);
+
+        ASSERT_TRUE(report.ok) << report.error;
+        EXPECT_TRUE(report.problems.empty());
+        TableHelpers::SiteFonts fonts(testDb.GetDatabaseHelper());
+        EXPECT_FALSE(fonts.GetFontByFamily(transaction, "Studio Sans").empty());
+    });
+}
+
+// Creating a table is a WRITE, and a dry run writes nothing. The apply does it
+// before touching either area, so nothing is lost by waiting.
+TEST(ThemeBundleRoundTripTest, ADryRunCreatesNoTables) {
+    ClearThemeBundleSectionsForTest();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("BundleDryRunNoDdl", [&](Transaction& transaction) {
         auto secrets = Secrets::Test::MakeTestSecretsHelper();
         transaction.RunSqlStatement("DROP TABLE IF EXISTS site_assets");
 
@@ -666,36 +692,11 @@ TEST(ThemeBundleRoundTripTest, ADryRunReportsTheSameMissingStorageAsAnApply) {
             ThemeBundleToJson(bundle), assets, options);
 
         EXPECT_TRUE(report.ok) << report.error;
-        EXPECT_EQ(report.assetChanges, 0);
-        bool sawArea = false;
-        for (const BundleProblem& problem : report.problems) {
-            if (problem.area == "assets") {
-                sawArea = true;
-            }
-        }
-        EXPECT_TRUE(sawArea) << "a dry run must not promise what apply cannot do";
-    });
-}
-
-// A missing table is not the same as a broken file: STRICT still refuses, so a
-// programmatic caller that wants all-or-nothing still gets it.
-TEST(ThemeBundleRoundTripTest, StrictRefusesWhenStorageIsMissing) {
-    ClearThemeBundleSectionsForTest();
-    TestDatabaseUtil testDb;
-    testDb.RunInTransaction("BundleStrictStorage", [&](Transaction& transaction) {
-        auto secrets = Secrets::Test::MakeTestSecretsHelper();
-        transaction.RunSqlStatement("DROP TABLE IF EXISTS site_assets");
-
-        ThemeBundle bundle;
-        bundle.formatVersion = 1;
-        bundle.content[std::string(Secrets::kSiteBrowserTitle)] = "Sunrise Studio";
-
-        BundleImportReport report = ImportThemeBundleJson(
-            testDb.GetDatabaseHelper(), transaction, *secrets,
-            ThemeBundleToJson(bundle), {}, ThemeBundleImportOptions{});
-
-        EXPECT_FALSE(report.ok);
-        EXPECT_NE(report.error.find("site_assets"), std::string::npos);
+        EXPECT_EQ(
+            transaction.RunSqlStatementReturningOneValue(
+                "SELECT COUNT(*) FROM information_schema.tables "
+                "WHERE table_name = 'site_assets'"),
+            "0");
     });
 }
 

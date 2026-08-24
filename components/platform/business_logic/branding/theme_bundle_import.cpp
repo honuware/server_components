@@ -12,6 +12,8 @@
 #include "db_schema/site_assets.h"
 #include "db_schema/site_fonts.h"
 #include "sql_util/database_access/database_metadata.h"
+#include "sql_util/database_access/db_and_table_operations.h"
+#include "sql_util/schema/database_info.h"
 #include "sql_util/table_helpers/site_assets.h"
 #include "sql_util/table_helpers/site_fonts.h"
 #include "util/secrets/secret_keys.h"
@@ -63,65 +65,48 @@ void AddProblem(
         BundleProblem{std::string(area), std::string(item), std::move(reason)});
 }
 
-// Which storage the framework half of an import can actually write to.
+// Makes sure the framework tables this import writes to actually exist,
+// CREATING any that do not.
 //
-// A database provisioned before a table existed simply does not have it, and
-// every query against it throws a Postgres error that — inside the one
-// transaction the import runs in — poisons everything after it. So the tables
-// are checked BEFORE the first write, and a missing one turns into a skipped
-// area with a plain reason instead of a 500 with a SQL fragment in the log.
+// The images are in the zip. A studio who opens Site Theme, picks their theme
+// file and presses Apply has said everything they need to say — being told
+// afterwards that the pictures were dropped and to go and run a command-line
+// tool is not an acceptable answer, however politely it is phrased. So the
+// import brings the database up to the shape it needs rather than reporting
+// that it is the wrong shape.
 //
-// This is also what makes the DRY RUN honest: it runs the same check, so
-// "validate" can no longer say a theme is fine and then have "apply" fail.
-struct BundleStorage {
-    bool assets = true;
-    bool fonts = true;
-};
-
-BundleStorage DetectBundleStorage(
-    Transaction& transaction, std::vector<BundleProblem>& problems) {
+// This is NOT a schema back-door. The DDL comes from the SAME db_schema
+// builders that MakeFrameworkTables and framework migration 0001_site_assets
+// use, so there is exactly one definition of each table; this only decides
+// WHEN it runs. Postgres DDL is transactional, so a create here lives or dies
+// with the rest of the import.
+//
+// Ordered by foreign key: sources before fonts before faces, matching
+// MakeFrameworkTables.
+void EnsureBundleStorage(Transaction& transaction) {
     std::set<std::string> tables;
     for (const std::string& table : DbMeta::ListTables(transaction)) {
         tables.insert(table);
     }
-    // The messages say WHAT IS WRONG WITH THIS DATABASE and how to fix it.
-    //
-    // They used to read "this site has no image storage yet", which was both
-    // wrong and alarming: images are a supported feature, the table is built
-    // for every new database by MakeFrameworkTables, and an existing database
-    // gets it from framework migration 0001_site_assets. A database without it
-    // is simply one that has not had its migrations run — a five-second fix
-    // that the old wording made sound like a missing product feature.
-    BundleStorage storage;
-    if (!tables.count(std::string(DbSchema::kSiteAssets))) {
-        storage.assets = false;
-        AddProblem(problems, "assets", "",
-                   "This database is missing the site_assets table, so the "
-                   "theme's images could not be stored. Everything else in the "
-                   "file was applied. Run the database helper with --migrate to "
-                   "add it, then import the theme again to get the images.");
-    }
-    // The three font tables are one feature: a family with nowhere to put its
-    // faces is not half-usable, it is unusable.
-    for (std::string_view table : { DbSchema::kSiteFonts,
-                                    DbSchema::kSiteFontSources,
-                                    DbSchema::kSiteFontFaces }) {
+
+    DbSchema::DatabaseInfo databaseInfo("");
+    DbSchema::MakeSiteFontSourcesTable(databaseInfo);
+    DbSchema::MakeSiteFontsTable(databaseInfo);
+    DbSchema::MakeSiteFontFacesTable(databaseInfo);
+    DbSchema::MakeSiteAssetsTable(databaseInfo);
+
+    for (std::string_view table : { DbSchema::kSiteFontSources,
+                                    DbSchema::kSiteFonts,
+                                    DbSchema::kSiteFontFaces,
+                                    DbSchema::kSiteAssets }) {
         if (!tables.count(std::string(table))) {
-            storage.fonts = false;
-            AddProblem(problems, "fonts", "",
-                       "This database is missing the site font tables, so the "
-                       "theme's fonts could not be stored. Everything else in "
-                       "the file was applied. Run the database helper with "
-                       "--migrate to add them, then import the theme again.");
-            break;
+            DbOps::CreateTable(transaction, databaseInfo, table);
         }
     }
-    return storage;
 }
 
-// The font half of an apply. Extracted so the "this database has no font
-// tables" skip is one readable `if` at the call site rather than a hundred
-// lines wrapped in a brace.
+// The font half of an apply. Extracted to keep ImportThemeBundleJson readable
+// rather than carrying a hundred more lines inline.
 //
 // Everything here assumes the bundle has already been pruned: a family that
 // survived PruneUnusableBundleItems has a valid name, a fallback, and — if it
@@ -526,12 +511,17 @@ BundleImportReport ImportThemeBundleJson(
     }
     PruneUnusableBundleItems(bundle, report.unknownKeys, report.problems);
 
-    // 4. Check what this database can actually store BEFORE writing anything.
-    //    A missing optional table would otherwise throw mid-apply, poisoning
-    //    the transaction and surfacing as a 500 with a SQL fragment. Runs on
-    //    the dry run too, so "validate" tells the truth about what "apply"
-    //    will do.
-    const BundleStorage storage = DetectBundleStorage(transaction, report.problems);
+    // 4. Make sure the tables this import writes to exist, creating any that
+    //    do not. Done BEFORE the first write: a query against a missing table
+    //    throws, and inside the one transaction an import runs in that poisons
+    //    everything after it — which is how this surfaced originally, as a 500
+    //    with a SQL fragment in the log and nothing on screen.
+    //
+    //    Skipped on a dry run, which must not write anything at all. That is
+    //    safe because the apply does it before touching either area.
+    if (!options.dryRun) {
+        EnsureBundleStorage(transaction);
+    }
 
     // App sections nothing has registered for are reported, not fatal — that is
     // what lets another app's theme contribute its colours and fonts here.
@@ -566,14 +556,8 @@ BundleImportReport ImportThemeBundleJson(
     }
 
     // ---- counts, for the report (and so a dry run has something to say) ----
-    //
-    // Counted against what will ACTUALLY be written: an area whose table is
-    // missing contributes nothing, so the dry run's numbers are the numbers the
-    // apply produces rather than an optimistic total.
-    report.assetChanges =
-        storage.assets ? static_cast<int>(bundle.assets.size()) : 0;
-    report.fontFamilyChanges =
-        storage.fonts ? static_cast<int>(bundle.fonts.families.size()) : 0;
+    report.assetChanges = static_cast<int>(bundle.assets.size());
+    report.fontFamilyChanges = static_cast<int>(bundle.fonts.families.size());
 
     std::vector<std::pair<std::string, std::string>> secretWrites;
     // Content. In REPLACE mode every registered key is written, including the
@@ -592,19 +576,7 @@ BundleImportReport ImportThemeBundleJson(
         // A bundled file becomes the route that will serve it. The asset itself
         // is placed below; this is only the reference.
         if (!value.empty() && IsUrlSlot(key) && IsBundleAssetReference(value)) {
-            if (!storage.assets) {
-                // Pointing a slot at an image we could not store would leave a
-                // logo that 404s. Cleared instead, so the slot falls back to
-                // the bundled default and the site still looks like something.
-                AddProblem(report.problems, "content", key,
-                           "refers to the image \"" + value +
-                               "\", which could not be stored (see above), so "
-                               "this setting was left at its default rather "
-                               "than pointing at an image that is not there.");
-                value.clear();
-            } else {
-                value = std::string(kThemeBundleAssetUrlPrefix) + value;
-            }
+            value = std::string(kThemeBundleAssetUrlPrefix) + value;
         }
         secretWrites.emplace_back(key, value);
     }
@@ -631,7 +603,7 @@ BundleImportReport ImportThemeBundleJson(
     //
     // Images first: a slot value written below points at one, so the row has to
     // exist before anything refers to it.
-    if (storage.assets) {
+    {
         TableHelpers::SiteAssets siteAssets(databaseHelper);
         std::set<std::string> keptAssets;
         for (const auto& [name, bytes] : bundle.assets) {
@@ -657,11 +629,7 @@ BundleImportReport ImportThemeBundleJson(
         secrets.AddSecret(transaction, key, value);
     }
 
-    // Skipped wholesale when this database has no font tables — see
-    // DetectBundleStorage. The problem is already on the report.
-    if (storage.fonts) {
-        ApplyBundleFonts(databaseHelper, transaction, bundle, options.merge);
-    }
+    ApplyBundleFonts(databaseHelper, transaction, bundle, options.merge);
 
     // ---- app sections ----
     SectionContext context;
