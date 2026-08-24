@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "business_logic/branding/theme_bundle.h"
+#include "business_logic/branding/theme_bundle_migrations.h"
 #include "sql_util/database_access/database_helper.h"
 
 namespace Branding {
@@ -32,7 +33,24 @@ struct SectionContext {
     // One namespace with the framework's assets, so a home-section photo and a
     // font face cannot collide silently.
     ThemeBundle* bundle = nullptr;
+    // Where a section reports a row it SKIPPED rather than a failure that
+    // should stop the import. Null when the caller does not collect them (an
+    // export, or a unit test), so always go through AddSectionProblem.
+    //
+    // Prefer this over returning a reason. A section that refuses its whole
+    // body because one row names a missing image takes the rest of the theme
+    // down with it; a section that skips that row and says so applies
+    // everything else.
+    std::vector<BundleProblem>* problems = nullptr;
 };
+
+// Records a skipped row from inside a section importer. Safe when nothing is
+// collecting.
+void AddSectionProblem(
+    SectionContext& context,
+    std::string_view sectionName,
+    std::string_view item,
+    std::string reason);
 
 // Export: fill `out` with this section's JSON and add any assets to the bundle.
 // Return a reason to fail the whole export, or "" on success.

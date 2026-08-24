@@ -91,7 +91,16 @@ Json::Value BundleImportReportToJson(const BundleImportReport& report) {
     for (const std::string& section : report.skippedSections) {
         skipped.push_back(Json::Value(section));
     }
+    Json::JsonArray problems;
+    for (const BundleProblem& problem : report.problems) {
+        problems.push_back(Json::Value(Json::JsonObject{
+            {"area", Json::Value(problem.area)},
+            {"item", Json::Value(problem.item)},
+            {"reason", Json::Value(problem.reason)},
+        }));
+    }
     Json::JsonObject object{
+        {"problems", Json::Value(problems)},
         {"ok", Json::Value(report.ok)},
         {"migrated_from", Json::Value(static_cast<int64_t>(report.migratedFrom))},
         {"migrations_applied", Json::Value(migrations)},

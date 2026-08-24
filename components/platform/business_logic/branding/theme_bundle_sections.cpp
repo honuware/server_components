@@ -54,6 +54,22 @@ const ThemeBundleSection* FindThemeBundleSection(const std::string& name) {
     return nullptr;
 }
 
+void AddSectionProblem(
+    SectionContext& context,
+    std::string_view sectionName,
+    std::string_view item,
+    std::string reason) {
+    if (!context.problems) {
+        return;
+    }
+    // Prefixed so a problem list covering the whole bundle says WHICH section a
+    // skipped row came from — "page_content" and "listings_page" both have
+    // rows, and "row 3 names a missing image" alone would be ambiguous.
+    context.problems->push_back(BundleProblem{
+        "section:" + std::string(sectionName), std::string(item),
+        std::move(reason)});
+}
+
 void ClearThemeBundleSectionsForTest() {
     std::lock_guard<std::mutex> lock(SectionsMutex());
     MutableSections().clear();

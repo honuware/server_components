@@ -227,12 +227,16 @@ TEST(ManageSiteThemeBundleTest, AnEmptyBodyIs400) {
     Auth::ServerConfig::Shutdown();
 }
 
-TEST(ManageSiteThemeBundleTest, ARefusedImportRollsBackTheFrameworkHalf) {
+TEST(ManageSiteThemeBundleTest, ARefusedStrictImportRollsBackTheFrameworkHalf) {
     // The import writes secrets and fonts BEFORE handing control to an app
     // section. RunInTransaction commits whenever its lambda returns normally,
     // so a section that refuses used to leave those writes committed while the
     // response said the import failed — half a theme, and the studio told it
     // got none. The failure path has to throw.
+    //
+    // Only STRICT refuses now. Under the default (lenient) a section that
+    // cannot be applied is reported and the rest of the theme still lands —
+    // see ALenientImportAppliesTheRestAndReportsTheSection below.
     Auth::ServerConfig::Shutdown();
     Auth::ServerConfig::InitializeTestMode();
     TestDatabaseUtil testDb;
@@ -265,7 +269,7 @@ TEST(ManageSiteThemeBundleTest, ARefusedImportRollsBackTheFrameworkHalf) {
         secrets->AddSecret(transaction, "site_theme_primary", "#000000");
         crow::response resp = Call(
             endpointHelper, crow::HTTPMethod::Post,
-            "/api/manage/site_theme_bundle", withSection.body);
+            "/api/manage/site_theme_bundle", withSection.body, "strict=1");
 
         EXPECT_EQ(resp.code, 400);
         EXPECT_NE(resp.body.find("unknown kind"), std::string::npos);
@@ -274,7 +278,50 @@ TEST(ManageSiteThemeBundleTest, ARefusedImportRollsBackTheFrameworkHalf) {
     Auth::ServerConfig::Shutdown();
 }
 
-TEST(ManageSiteThemeBundleTest, StrictIsTheDefaultAndLenientIsAQueryFlag) {
+// The default. A section this site cannot apply must not cost the studio their
+// colours and fonts: those land, and the section is reported by name.
+TEST(ManageSiteThemeBundleTest, ALenientImportAppliesTheRestAndReportsTheSection) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("BundleLenientSection", [&](Transaction& transaction) {
+        Branding::ClearThemeBundleSectionsForTest();
+        EndpointTestHelper endpointHelper(transaction, testDb);
+        SignIn(transaction, testDb, endpointHelper, /*makeAdmin=*/true);
+        auto secrets = endpointHelper.GetSecretsHelper();
+        secrets->AddSecret(transaction, "site_theme_primary", "#e8743b");
+
+        Branding::RegisterThemeBundleSection(
+            "page_content",
+            [](Branding::SectionContext&, Json::Value& out) {
+                out = Json::Value(Json::JsonObject{});
+                return std::string();
+            },
+            [](Branding::SectionContext&, const Json::Value&, bool) {
+                return std::string("home section 2 has an unknown kind");
+            });
+        crow::response download = Call(
+            endpointHelper, crow::HTTPMethod::Get, "/api/manage/site_theme_bundle");
+        ASSERT_EQ(download.code, 200);
+
+        secrets->AddSecret(transaction, "site_theme_primary", "#000000");
+        crow::response resp = Call(
+            endpointHelper, crow::HTTPMethod::Post,
+            "/api/manage/site_theme_bundle", download.body);
+
+        // Applied, not refused...
+        EXPECT_EQ(resp.code, 200);
+        EXPECT_EQ(secrets->LookupSecret(transaction, "site_theme_primary"),
+                  "#e8743b");
+        // ...and never silent about what it left out.
+        EXPECT_NE(resp.body.find("unknown kind"), std::string::npos);
+        EXPECT_NE(resp.body.find("section:page_content"), std::string::npos);
+        Branding::ClearThemeBundleSectionsForTest();
+    });
+    Auth::ServerConfig::Shutdown();
+}
+
+TEST(ManageSiteThemeBundleTest, LenientIsTheDefaultAndStrictIsAQueryFlag) {
     Auth::ServerConfig::Shutdown();
     Auth::ServerConfig::InitializeTestMode();
     TestDatabaseUtil testDb;
@@ -296,6 +343,10 @@ TEST(ManageSiteThemeBundleTest, StrictIsTheDefaultAndLenientIsAQueryFlag) {
         // never carry one, since the exporter is registry-driven.
         EXPECT_EQ(Call(endpointHelper, crow::HTTPMethod::Post,
                        "/api/manage/site_theme_bundle", zip).code, 200);
+        EXPECT_EQ(Call(endpointHelper, crow::HTTPMethod::Post,
+                       "/api/manage/site_theme_bundle", zip, "strict=1").code, 200);
+        // The old spelling is no longer a flag — lenient is what you get by
+        // default, so asking for it is a no-op rather than an error.
         EXPECT_EQ(Call(endpointHelper, crow::HTTPMethod::Post,
                        "/api/manage/site_theme_bundle", zip, "lenient=1").code, 200);
 

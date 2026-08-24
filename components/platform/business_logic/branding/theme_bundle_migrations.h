@@ -64,6 +64,23 @@ enum class BundleStrictness {
     Lenient,
 };
 
+// One thing the import could not do, and why.
+//
+// The whole point is that a problem is ATTRIBUTED. "That theme file is not
+// valid" tells a studio nothing; "font Brandon Grotesque: the file
+// brandon.woff2 is not in that theme file" tells them exactly what to fix. The
+// three fields are what a message needs to be actionable: where it happened,
+// which thing it was, and what was wrong with it.
+struct BundleProblem {
+    // "assets", "fonts", "content", "tokens", or "section:page_content".
+    std::string area;
+    // The key, family name or file name this is about. May be empty when the
+    // problem is about the area as a whole.
+    std::string item;
+    // Plain English, addressed to the studio — never a SQL error or a type name.
+    std::string reason;
+};
+
 // What an import did, and what it declined to do. Returned by the dry-run
 // endpoint as well as the real one, so a studio can see the consequences of a
 // theme before committing to it.
@@ -76,6 +93,15 @@ struct BundleImportReport {
     std::vector<std::string> unknownKeys;
     // App sections present in the bundle that nothing has registered for.
     std::vector<std::string> skippedSections;
+    // Everything that was SKIPPED rather than applied. Under Lenient this is
+    // how a partly-understood theme reports itself: `ok` is still true, the
+    // understood half is applied, and this says what was left out. Under Strict
+    // the first entry becomes the refusal reason instead.
+    //
+    // An import that reports problems is NOT a failure — it is the normal way a
+    // theme written by a different build, or against a database that lacks an
+    // optional table, gets as far as it can.
+    std::vector<BundleProblem> problems;
     int contentChanges = 0;
     int tokenChanges = 0;
     int fontFamilyChanges = 0;

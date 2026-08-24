@@ -55,11 +55,21 @@ bool FlagIsSet(const crow::request& req, const char* name) {
 
 Branding::ThemeBundleImportOptions OptionsFrom(const crow::request& req) {
     Branding::ThemeBundleImportOptions options;
-    // Strict by default (OQ-TF3): a typo'd token silently doing nothing is the
-    // worst available outcome, so lenient has to be asked for.
-    options.strictness = FlagIsSet(req, "lenient")
-                             ? Branding::BundleStrictness::Lenient
-                             : Branding::BundleStrictness::Strict;
+    // LENIENT by default.
+    //
+    // This was Strict, on the reasoning that a typo'd token silently doing
+    // nothing is the worst available outcome. In practice the outcome that
+    // actually happened was worse: one unrecognised key from a slightly
+    // different build refused the entire file, so a studio could not restore
+    // their own theme and had nothing to act on but "that theme file has
+    // settings this site does not have".
+    //
+    // Nothing is silent either way — every skipped item is on the report and
+    // rendered in the editor. Lenient applies what it understands and says what
+    // it did not; `?strict=1` is the opt-in for all-or-nothing.
+    options.strictness = FlagIsSet(req, "strict")
+                             ? Branding::BundleStrictness::Strict
+                             : Branding::BundleStrictness::Lenient;
     // Replace by default (OQ-TF2).
     options.merge = FlagIsSet(req, "merge");
     return options;
@@ -137,6 +147,28 @@ Json::Value RunImport(
         resp.set_header("Content-Type", "application/json");
         resp.write(result.ToString());
         resp.code = 400;
+    }
+    catch (const std::exception& error) {
+        // Anything the import did not anticipate — most often a database that
+        // does not have a table this build expects.
+        //
+        // This used to escape to the route handler and become a bare 500
+        // ("An unexpected error occurred"), with the real cause visible only in
+        // the server log. An admin importing their own theme was told nothing
+        // and had nowhere to look. The reason is now in the response, framed as
+        // what it is: the theme was not applied, and here is what went wrong.
+        //
+        // Safe to include: this route is admin-only, and the alternative is an
+        // administrator debugging their own site by reading a server log.
+        Branding::BundleImportReport report;
+        report.ok = false;
+        report.error =
+            std::string("The theme file could not be applied: ") + error.what();
+        result = Branding::BundleImportReportToJson(report);
+        resp = ErrorResponse::InternalError(report.error);
+        resp.set_header("Content-Type", "application/json");
+        resp.write(result.ToString());
+        resp.code = 500;
     }
 
     return result;

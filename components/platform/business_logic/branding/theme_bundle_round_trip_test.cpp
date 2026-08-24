@@ -476,5 +476,223 @@ TEST(ThemeBundleRoundTripTest, ASectionFailureFailsTheWholeImport) {
     ClearThemeBundleSectionsForTest();
 }
 
+// ---- Tolerance: applying what fits instead of refusing the file -------------
+//
+// Mason, 8/24/2026: "the theme files have always been flaky and give no help
+// debugging issues. If extra things are there, ignore them. If things are
+// missing, apply the changes that are there."
+
+TEST(ThemeBundleRoundTripTest, LenientAppliesTheGoodHalfAndReportsTheBad) {
+    ClearThemeBundleSectionsForTest();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("BundleLenientPrune", [&](Transaction& transaction) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        ThemeBundle bundle;
+        bundle.formatVersion = 1;
+        // Good.
+        bundle.content[std::string(Secrets::kSiteBrowserTitle)] = "Sunrise Studio";
+        bundle.tokens["site_theme_primary"] = "#e8743b";
+        // Bad: a logo pointing at a file the zip does not carry, and a token
+        // whose value is junk.
+        bundle.content[std::string(Secrets::kSiteLogoUrl)] = "logo.png";
+        bundle.tokens["site_theme_accent"] = "not-a-colour";
+
+        ThemeBundleImportOptions options;
+        options.strictness = BundleStrictness::Lenient;
+        BundleImportReport report = ImportThemeBundleJson(
+            testDb.GetDatabaseHelper(), transaction, *secrets,
+            ThemeBundleToJson(bundle), {}, options);
+
+        // The import SUCCEEDS — that is the whole point.
+        EXPECT_TRUE(report.ok) << report.error;
+        EXPECT_EQ(secrets->LookupSecret(transaction, Secrets::kSiteBrowserTitle),
+                  "Sunrise Studio");
+        EXPECT_EQ(secrets->LookupSecret(transaction, "site_theme_primary"),
+                  "#e8743b");
+        // The bad token was dropped rather than stored.
+        EXPECT_NE(secrets->LookupSecret(transaction, "site_theme_accent"),
+                  "not-a-colour");
+
+        // ...and every skipped item is attributed.
+        ASSERT_EQ(report.problems.size(), 2u);
+        bool sawLogo = false;
+        bool sawAccent = false;
+        for (const BundleProblem& problem : report.problems) {
+            if (problem.item == Secrets::kSiteLogoUrl) {
+                sawLogo = true;
+                EXPECT_EQ(problem.area, "content");
+                EXPECT_NE(problem.reason.find("logo.png"), std::string::npos);
+            }
+            if (problem.item == "site_theme_accent") {
+                sawAccent = true;
+                EXPECT_EQ(problem.area, "tokens");
+                EXPECT_NE(problem.reason.find("not-a-colour"), std::string::npos);
+            }
+        }
+        EXPECT_TRUE(sawLogo);
+        EXPECT_TRUE(sawAccent);
+    });
+}
+
+// One unusable family must not cost the studio the rest of their fonts.
+TEST(ThemeBundleRoundTripTest, LenientKeepsTheGoodFontsAndDropsTheBrokenOne) {
+    ClearThemeBundleSectionsForTest();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("BundleLenientFonts", [&](Transaction& transaction) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        ThemeBundle bundle;
+        bundle.formatVersion = 1;
+
+        BundleFontFamily good;
+        good.family = "Studio Sans";
+        good.fallback = "sans-serif";
+        good.sourceKind = "uploaded";
+        good.faces = {{400, "normal", "studiosans.woff2"}};
+        bundle.fonts.families.push_back(good);
+
+        // Its file never travelled, so the family has nothing to render with.
+        BundleFontFamily broken;
+        broken.family = "Missing Face";
+        broken.fallback = "serif";
+        broken.sourceKind = "uploaded";
+        broken.faces = {{400, "normal", "gone.woff2"}};
+        bundle.fonts.families.push_back(broken);
+
+        ThemeBundleImportOptions options;
+        options.strictness = BundleStrictness::Lenient;
+        std::map<std::string, std::string> assets{{"studiosans.woff2", kWoff2}};
+        BundleImportReport report = ImportThemeBundleJson(
+            testDb.GetDatabaseHelper(), transaction, *secrets,
+            ThemeBundleToJson(bundle), assets, options);
+
+        EXPECT_TRUE(report.ok) << report.error;
+        TableHelpers::SiteFonts fonts(testDb.GetDatabaseHelper());
+        EXPECT_FALSE(fonts.GetFontByFamily(transaction, "Studio Sans").empty());
+        EXPECT_TRUE(fonts.GetFontByFamily(transaction, "Missing Face").empty());
+        // TWO problems, deliberately: the face that could not be placed (naming
+        // the file, which is what a studio needs in order to fix it) and the
+        // family that was left with nothing to render. Reporting only the
+        // second would say "no usable font files" without saying which.
+        bool sawFace = false;
+        bool sawFamily = false;
+        for (const BundleProblem& problem : report.problems) {
+            if (problem.item != "Missing Face") {
+                continue;
+            }
+            EXPECT_EQ(problem.area, "fonts");
+            if (problem.reason.find("gone.woff2") != std::string::npos) {
+                sawFace = true;
+            }
+            if (problem.reason.find("no usable font files") != std::string::npos) {
+                sawFamily = true;
+            }
+        }
+        EXPECT_TRUE(sawFace) << "the missing file has to be named";
+        EXPECT_TRUE(sawFamily) << "and so does the family it cost";
+    });
+}
+
+// THE BUG THIS WORK CAME FROM (Mason, 8/24/2026). A database provisioned before
+// site_assets existed made every import 500 with a SQL fragment in the log and
+// nothing on screen. The area is skipped and reported instead.
+TEST(ThemeBundleRoundTripTest, AMissingAssetTableSkipsImagesInsteadOfThrowing) {
+    ClearThemeBundleSectionsForTest();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("BundleNoAssetTable", [&](Transaction& transaction) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        // Reproduce the older database. The harness pre-creates every table, so
+        // it has to be dropped to test anything at all.
+        transaction.RunSqlStatement("DROP TABLE IF EXISTS site_assets");
+
+        ThemeBundle bundle;
+        bundle.formatVersion = 1;
+        bundle.content[std::string(Secrets::kSiteBrowserTitle)] = "Sunrise Studio";
+        bundle.content[std::string(Secrets::kSiteLogoUrl)] = "logo.png";
+
+        ThemeBundleImportOptions options;
+        options.strictness = BundleStrictness::Lenient;
+        std::map<std::string, std::string> assets{{"logo.png", kPng}};
+        BundleImportReport report = ImportThemeBundleJson(
+            testDb.GetDatabaseHelper(), transaction, *secrets,
+            ThemeBundleToJson(bundle), assets, options);
+
+        // Applied, not thrown, not refused.
+        EXPECT_TRUE(report.ok) << report.error;
+        EXPECT_EQ(secrets->LookupSecret(transaction, Secrets::kSiteBrowserTitle),
+                  "Sunrise Studio");
+        // The count reflects what was ACTUALLY written, so a dry run cannot
+        // promise images it will not place.
+        EXPECT_EQ(report.assetChanges, 0);
+        // The logo slot is left at its default rather than pointing at an image
+        // that was never stored, which would 404 on every page.
+        EXPECT_TRUE(
+            secrets->LookupSecret(transaction, Secrets::kSiteLogoUrl).empty());
+
+        bool sawArea = false;
+        for (const BundleProblem& problem : report.problems) {
+            if (problem.area == "assets" && problem.item.empty()) {
+                sawArea = true;
+                EXPECT_NE(problem.reason.find("image storage"), std::string::npos);
+            }
+        }
+        EXPECT_TRUE(sawArea);
+    });
+}
+
+// The dry run has to run the SAME storage check, or "validate" says a theme is
+// fine and "apply" then fails — which is exactly how this bug presented.
+TEST(ThemeBundleRoundTripTest, ADryRunReportsTheSameMissingStorageAsAnApply) {
+    ClearThemeBundleSectionsForTest();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("BundleDryRunStorage", [&](Transaction& transaction) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        transaction.RunSqlStatement("DROP TABLE IF EXISTS site_assets");
+
+        ThemeBundle bundle;
+        bundle.formatVersion = 1;
+        bundle.content[std::string(Secrets::kSiteLogoUrl)] = "logo.png";
+
+        ThemeBundleImportOptions options;
+        options.strictness = BundleStrictness::Lenient;
+        options.dryRun = true;
+        std::map<std::string, std::string> assets{{"logo.png", kPng}};
+        BundleImportReport report = ImportThemeBundleJson(
+            testDb.GetDatabaseHelper(), transaction, *secrets,
+            ThemeBundleToJson(bundle), assets, options);
+
+        EXPECT_TRUE(report.ok) << report.error;
+        EXPECT_EQ(report.assetChanges, 0);
+        bool sawArea = false;
+        for (const BundleProblem& problem : report.problems) {
+            if (problem.area == "assets") {
+                sawArea = true;
+            }
+        }
+        EXPECT_TRUE(sawArea) << "a dry run must not promise what apply cannot do";
+    });
+}
+
+// A missing table is not the same as a broken file: STRICT still refuses, so a
+// programmatic caller that wants all-or-nothing still gets it.
+TEST(ThemeBundleRoundTripTest, StrictRefusesWhenStorageIsMissing) {
+    ClearThemeBundleSectionsForTest();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("BundleStrictStorage", [&](Transaction& transaction) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        transaction.RunSqlStatement("DROP TABLE IF EXISTS site_assets");
+
+        ThemeBundle bundle;
+        bundle.formatVersion = 1;
+        bundle.content[std::string(Secrets::kSiteBrowserTitle)] = "Sunrise Studio";
+
+        BundleImportReport report = ImportThemeBundleJson(
+            testDb.GetDatabaseHelper(), transaction, *secrets,
+            ThemeBundleToJson(bundle), {}, ThemeBundleImportOptions{});
+
+        EXPECT_FALSE(report.ok);
+        EXPECT_NE(report.error.find("image storage"), std::string::npos);
+    });
+}
+
 }  // namespace
 }  // namespace Branding
