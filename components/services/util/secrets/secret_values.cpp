@@ -34,6 +34,12 @@ inline constexpr std::string_view kSiteLogoUrlValue = "";
 // may default a given key.
 inline constexpr std::string_view kSiteFaviconUrlValue = "";
 inline constexpr std::string_view kSiteHeroImageUrlValue = "";
+// Polish Phase 8.3 — same contract as the two above: empty means "no artwork,
+// draw the tagline as text". A tenant that HAS artwork gets the value written
+// by its own seed (knottyyoga points it at the tagline.png it seeds into
+// site_assets), not by a second default here — config_secrets.name is UNIQUE,
+// so exactly one side may default a key.
+inline constexpr std::string_view kSiteTaglineImageUrlValue = "";
 // Phase 3.3 of the security review: the activation link is the SPA
 // route the verification mail points at. The SPA reads the email and
 // secret from the query string, immediately POSTs to /api/verify, and
@@ -135,6 +141,7 @@ void FillInSecretsStringView(std::function<void(std::string_view, std::string_vi
     addSecret(kSiteLogoUrl, kSiteLogoUrlValue);
     addSecret(kSiteFaviconUrl, kSiteFaviconUrlValue);
     addSecret(kSiteHeroImageUrl, kSiteHeroImageUrlValue);
+    addSecret(kSiteTaglineImageUrl, kSiteTaglineImageUrlValue);
     addSecret(kAuthVerifyEmailTimeLimitInMicros, kAuthVerifyEmailTimeLimitInMicrosValue);
     addSecret(kEmailVerificationExpirationWindowInMicros, kEmailVerificationExpirationWindowInMicrosValue);
     addSecret(kEmailVerificationAttemptLimit, kEmailVerificationAttemptLimitValue);

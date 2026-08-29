@@ -54,6 +54,11 @@ inline constexpr std::string_view kSiteHeroHeadline = "site_hero_headline";
 inline constexpr std::string_view kSiteHeroSubline = "site_hero_subline";
 inline constexpr std::string_view kSiteHeroImageUrl = "site_hero_image_url";
 inline constexpr std::string_view kSiteTaglineLines = "site_tagline_lines";
+// The footer tagline as ARTWORK. When set, the footer renders this image and
+// `site_tagline_lines` becomes its alt text; when empty, the lines are drawn as
+// styled text. Two slots rather than one because the words are still needed for
+// screen readers and for a tenant with no artwork.
+inline constexpr std::string_view kSiteTaglineImageUrl = "site_tagline_image_url";
 inline constexpr std::string_view kSiteAddressLines = "site_address_lines";
 inline constexpr std::string_view kSiteContactEmail = "site_contact_email";
 inline constexpr std::string_view kSiteAboutMarkdown = "site_about_markdown";
