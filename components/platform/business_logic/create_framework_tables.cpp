@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "db_schema/admin_alerts.h"
 #include "db_schema/admin_column_data_info.h"
@@ -27,6 +28,7 @@
 #include "db_schema/permissions.h"
 #include "db_schema/people.h"
 #include "db_schema/photos.h"
+#include "db_schema/site_assets.h"
 #include "db_schema/site_fonts.h"
 #include "db_schema/role_assignments.h"
 #include "db_schema/role_permissions.h"
@@ -63,49 +65,71 @@ auto MakeAddRowLambda(
 
 }  // namespace
 
+// Every framework table, in FK / creation order.
+//
+// Exposed as DATA rather than left as a sequence of calls so a test can compare
+// it against MakeFrameworkTables. The two lists have to agree, and for
+// site_assets they silently did not: it was registered but never created, so no
+// database ever had the table and only the repair migration produced it. A list
+// can be diffed; a hundred function calls cannot.
+const std::vector<std::string_view>& FrameworkTableCreationOrder() {
+    static const std::vector<std::string_view> tables = {
+        DbSchema::kSchemaMigrationsTable,
+        DbSchema::kAdminAlertsTable,
+        DbSchema::kAdminTopLevelTablesTable,
+        DbSchema::kAdminNestedTablesTable,
+        DbSchema::kAdminColumnDataInfoTable,
+        DbSchema::kAdminColumnRedactionsTable,
+        DbSchema::kAdminEnumsTable,
+        DbSchema::kAdminEnumValuesTable,
+        DbSchema::kAdminColumnEnumsTable,
+        DbSchema::kAdminColumnFriendlyNamesTable,
+        DbSchema::kAdminTableFriendlyNamesTable,
+        DbSchema::kAdminTableDisplayTemplateTable,
+        DbSchema::kAllowedTablesTable,
+        DbSchema::kConfigSecretsTable,
+        DbSchema::kPeopleTable,
+        DbSchema::kRolesTable,
+        DbSchema::kPermissionsTable,
+        DbSchema::kAdminTablePermissionsTable,
+        DbSchema::kRoleAssignmentsTable,
+        DbSchema::kRolePermissionsTable,
+        DbSchema::kPermissionImplicationsTable,
+        DbSchema::kSessionsTable,
+        DbSchema::kDeviceTokensTable,
+        DbSchema::kEmailVerificationsTable,
+        DbSchema::kPhotoSupportTables,
+        DbSchema::kPhotoInstances,
+        DbSchema::kSourcePhotos,
+        DbSchema::kScaledPhotos,
+        DbSchema::kTableItemPhotos,
+        DbSchema::kSiteFontSources,
+        DbSchema::kSiteFonts,
+        DbSchema::kSiteFontFaces,
+        // MISSING from this list from the day it was added (Tenant Theming
+        // Phase 9). It was registered in MakeFrameworkTables, so the schema
+        // looked complete and the DDL existed — but nothing ever ran it, so NO
+        // database has ever had this table from creation. Framework migration
+        // 0001_site_assets was written to repair "older" databases and was in
+        // fact the only thing that ever created it, which is why a site that
+        // had never run --migrate could not store a theme's images.
+        DbSchema::kSiteAssets,
+        DbSchema::kIdempotencyKeysTable,
+        DbSchema::kLoginAttemptsTable,
+        DbSchema::kAuthEventsTable,
+    };
+    return tables;
+}
+
 void CreateFrameworkTables(
     Transaction& transaction, DbSchema::DatabaseInfo databaseInfo) {
-    auto CreateTable = [&](std::string_view tableName) {
+    for (std::string_view tableName : FrameworkTableCreationOrder()) {
         DbOps::DropIfExistsAndCreateTable(transaction, databaseInfo, tableName);
-    };
-    // Framework tables in FK / creation order — the MakeFrameworkTables set.
-    CreateTable(DbSchema::kSchemaMigrationsTable);
-    CreateTable(DbSchema::kAdminAlertsTable);
-    CreateTable(DbSchema::kAdminTopLevelTablesTable);
-    CreateTable(DbSchema::kAdminNestedTablesTable);
-    CreateTable(DbSchema::kAdminColumnDataInfoTable);
-    CreateTable(DbSchema::kAdminColumnRedactionsTable);
-    CreateTable(DbSchema::kAdminEnumsTable);
-    CreateTable(DbSchema::kAdminEnumValuesTable);
-    CreateTable(DbSchema::kAdminColumnEnumsTable);
-    CreateTable(DbSchema::kAdminColumnFriendlyNamesTable);
-    CreateTable(DbSchema::kAdminTableFriendlyNamesTable);
-    CreateTable(DbSchema::kAdminTableDisplayTemplateTable);
-    CreateTable(DbSchema::kAllowedTablesTable);
-    CreateTable(DbSchema::kConfigSecretsTable);
-    CreateTable(DbSchema::kPeopleTable);
-    CreateTable(DbSchema::kRolesTable);
-    CreateTable(DbSchema::kPermissionsTable);
-    CreateTable(DbSchema::kAdminTablePermissionsTable);
-    CreateTable(DbSchema::kRoleAssignmentsTable);
-    CreateTable(DbSchema::kRolePermissionsTable);
-    CreateTable(DbSchema::kPermissionImplicationsTable);
+    }
+    // Indexes AFTER their tables — all three targets are created above, so the
+    // interleaving the previous version used is not required.
     DbSchema::CreatePermissionImplicationsIndexes(transaction);
-    CreateTable(DbSchema::kSessionsTable);
-    CreateTable(DbSchema::kDeviceTokensTable);
-    CreateTable(DbSchema::kEmailVerificationsTable);
-    CreateTable(DbSchema::kPhotoSupportTables);
-    CreateTable(DbSchema::kPhotoInstances);
-    CreateTable(DbSchema::kSourcePhotos);
-    CreateTable(DbSchema::kScaledPhotos);
-    CreateTable(DbSchema::kTableItemPhotos);
-    CreateTable(DbSchema::kSiteFontSources);
-    CreateTable(DbSchema::kSiteFonts);
-    CreateTable(DbSchema::kSiteFontFaces);
-    CreateTable(DbSchema::kIdempotencyKeysTable);
-    CreateTable(DbSchema::kLoginAttemptsTable);
     DbSchema::CreateLoginAttemptsIndexes(transaction);
-    CreateTable(DbSchema::kAuthEventsTable);
     DbSchema::CreateAuthEventsIndexes(transaction);
 }
 

@@ -1,10 +1,14 @@
 #include "business_logic/create_framework_tables.h"
 
+#include <algorithm>
+#include <set>
 #include <string>
 
 #include <gtest/gtest.h>
 
+#include "db_schema/make_framework_tables.h"
 #include "db_schema/people.h"
+#include "db_schema/site_assets.h"
 #include "db_schema/permission_implications.h"
 #include "db_schema/permissions.h"
 #include "db_schema/roles.h"
@@ -21,6 +25,60 @@
 // with its own app seed. CreateFrameworkTables's DDL is exercised live by the
 // app's --recreate_database (the recompose gate).
 namespace {
+
+// THE GUARD THIS FILE WAS MISSING.
+//
+// MakeFrameworkTables says which tables EXIST; CreateFrameworkTables says which
+// get BUILT. Nothing compared them, and the header comment above admits why:
+// "CreateFrameworkTables's DDL is exercised live by the app's
+// --recreate_database" — a step no automated gate runs.
+//
+// So `site_assets` was registered and never created. Every database ever made
+// lacked it; only framework migration 0001_site_assets produced the table, and
+// a site that had never run --migrate could not store a theme's images. It took
+// a studio hitting a 500 on a theme import to find it.
+//
+// This needs no database: both sides are static lists.
+TEST(CreateFrameworkTablesTest, CreateFrameworkTablesMatchesMakeFrameworkTables) {
+    DbSchema::DatabaseInfo info("framework_test");
+    DbSchema::MakeFrameworkTables(info);
+
+    std::set<std::string> registered;
+    for (const std::string& table : info.GetAllTables()) {
+        registered.insert(table);
+    }
+    std::set<std::string> created;
+    for (std::string_view table : FrameworkTableCreationOrder()) {
+        created.insert(std::string(table));
+    }
+
+    // Non-vacuous: an empty list on either side would satisfy the loops below.
+    EXPECT_GT(registered.size(), 20u);
+    EXPECT_EQ(created.size(), FrameworkTableCreationOrder().size())
+        << "a table is listed twice in the creation order";
+
+    for (const std::string& table : registered) {
+        EXPECT_EQ(created.count(table), 1u)
+            << "`" << table << "` is registered in MakeFrameworkTables but "
+               "CreateFrameworkTables never creates it — every new database "
+               "will be missing it, and only a repair migration would ever "
+               "produce it. Add it to FrameworkTableCreationOrder in FK order.";
+    }
+    for (const std::string& table : created) {
+        EXPECT_EQ(registered.count(table), 1u)
+            << "`" << table << "` is created by CreateFrameworkTables but is "
+               "not registered in MakeFrameworkTables, so it has no DDL.";
+    }
+}
+
+// Named explicitly, because it is the one the rule was learned on.
+TEST(CreateFrameworkTablesTest, SiteAssetsIsBuiltForEveryNewDatabase) {
+    const auto& order = FrameworkTableCreationOrder();
+    EXPECT_NE(std::find(order.begin(), order.end(), DbSchema::kSiteAssets),
+              order.end())
+        << "without this, a theme import cannot store its images until "
+           "somebody runs --migrate";
+}
 
 TEST(CreateFrameworkTablesTest, PopulateFrameworkTablesSeedsBaseline) {
     TestDatabaseUtil testDb;

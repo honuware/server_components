@@ -1,5 +1,8 @@
 #pragma once
 
+#include <string_view>
+#include <vector>
+
 #include "sql_util/database_access/database_helper.h"
 #include "sql_util/database_access/transaction.h"
 #include "sql_util/schema/database_info.h"
@@ -20,6 +23,14 @@
 // created here). Mirrors the framework subset of an app's CreateTables.
 void CreateFrameworkTables(
     Transaction& transaction, DbSchema::DatabaseInfo databaseInfo);
+
+// The table names CreateFrameworkTables builds, in FK / creation order.
+//
+// Exposed so a test can diff it against MakeFrameworkTables. Those two have to
+// agree; for `site_assets` they silently did not, and because nothing compared
+// them the table was registered-but-never-created for its whole life. A list is
+// diffable in a way that a sequence of calls is not.
+const std::vector<std::string_view>& FrameworkTableCreationOrder();
 
 // Seeds the honuware framework baseline into the just-created framework tables:
 //   - framework config-secret defaults (Secrets::Values::FillInSecretsStringView),

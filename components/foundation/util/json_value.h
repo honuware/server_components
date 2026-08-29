@@ -528,7 +528,13 @@ inline Value FromCrow(const crow::json::rvalue& r) {
         }
         if (nt == crow::json::num_type::Unsigned_integer) {
             const std::uint64_t u = r.u();
-            if (u <= static_cast<std::uint64_t>(std::numeric_limits<int64_t>::max())) {
+            // The parentheses around the qualified name are load-bearing on
+            // Windows: if any translation unit includes <windows.h> without
+            // NOMINMAX first, `max` is a function-like macro and this line
+            // stops parsing. Wrapping the name suppresses macro expansion, so
+            // this header is safe to include in ANY order. A caller should
+            // still define NOMINMAX, but a header cannot rely on that.
+            if (u <= static_cast<std::uint64_t>((std::numeric_limits<int64_t>::max)())) {
                 return Value(static_cast<int64_t>(u));
             }
             return Value(static_cast<double>(u));

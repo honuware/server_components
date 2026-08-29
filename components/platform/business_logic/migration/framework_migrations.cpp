@@ -19,12 +19,23 @@ std::vector<Migration> BuildFrameworkMigrations() {
         // Tenant Theming Phase 9 — site_assets holds the images a theme bundle
         // carries (a logo, a favicon, a hero).
         //
-        // Registering the table in MakeFrameworkTables covers a database built
-        // from scratch; it does NOTHING for one that already exists. Without
-        // this migration, importing a theme into an existing site fails with
-        // `relation "site_assets" does not exist` — and fails at APPLY time,
-        // after the dry run has already reported success, because the dry run
-        // returns before it touches the table.
+        // ⚠️ THIS COMMENT USED TO BE WRONG, and the wrongness hid a real bug
+        // for the table's whole life. It read: "Registering the table in
+        // MakeFrameworkTables covers a database built from scratch; it does
+        // NOTHING for one that already exists."
+        //
+        // The first half was false. Registering a table in MakeFrameworkTables
+        // gives it DDL; it does not create it. `CreateFrameworkTables` has the
+        // list of tables actually built, and site_assets was never on it — so
+        // NO database, however freshly created, had this table, and this
+        // migration was the only thing that ever produced one. A site that had
+        // never run --migrate could not store a theme's images, and the error
+        // arrived at APPLY time after the dry run had reported success.
+        //
+        // CreateFrameworkTables now builds it, guarded by
+        // CreateFrameworkTablesMatchesMakeFrameworkTables. This migration stays
+        // for databases created before that fix — which is every database that
+        // predates it.
         Migration{
             NamespacedMigrationId(kFrameworkMigrationNamespace,
                                   "0001_site_assets"),
