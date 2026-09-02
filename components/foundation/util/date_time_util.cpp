@@ -386,4 +386,66 @@ int64_t LocalWallClockToUs(
     return static_cast<int64_t>(epoch) * 1000000LL;
 }
 
+// Resolve an already-populated local `struct tm` to an epoch under `timezone`.
+// Must be called under tzMutex lock, and `localTm.tm_isdst` must be -1 so
+// mktime works the offset out from the zone's rules instead of trusting a
+// carried-over flag. (The three functions above predate this and inline the
+// same block; they are left alone because they are covered and working.)
+static int64_t LocalTmToUs(struct tm& localTm, std::string_view timezone) {
+    std::string posixTz = IanaToPosixTz(timezone);
+#ifdef _WIN32
+    _putenv_s("TZ", posixTz.c_str());
+    _tzset();
+    time_t epoch = mktime(&localTm);
+    _putenv_s("TZ", "");
+    _tzset();
+#else
+    std::string oldTz;
+    const char* prevTz = std::getenv("TZ");
+    if (prevTz) oldTz = prevTz;
+    setenv("TZ", posixTz.c_str(), 1);
+    tzset();
+    time_t epoch = mktime(&localTm);
+    if (prevTz) setenv("TZ", oldTz.c_str(), 1);
+    else unsetenv("TZ");
+    tzset();
+#endif
+    return static_cast<int64_t>(epoch) * 1000000LL;
+}
+
+int64_t CalendarDateWallClockToUs(
+    int64_t dateTokenUs, int minutesAfterMidnight, std::string_view timezone) {
+    // Read Y/M/D in UTC. The token IS a UTC midnight, so these are exactly the
+    // calendar-date numbers it stands for — no zone involved yet.
+    auto tp = date::sys_time<std::chrono::microseconds>(
+        std::chrono::microseconds{dateTokenUs});
+    auto ymd = date::year_month_day{date::floor<date::days>(tp)};
+
+    std::lock_guard<std::mutex> lock(tzMutex);
+    struct tm localTm{};
+    localTm.tm_year = static_cast<int>(ymd.year()) - 1900;
+    localTm.tm_mon =
+        static_cast<int>(static_cast<unsigned>(ymd.month())) - 1;
+    localTm.tm_mday = static_cast<int>(static_cast<unsigned>(ymd.day()));
+    localTm.tm_hour = minutesAfterMidnight / 60;
+    localTm.tm_min = minutesAfterMidnight % 60;
+    localTm.tm_sec = 0;
+    localTm.tm_isdst = -1;
+    return LocalTmToUs(localTm, timezone);
+}
+
+int64_t LocalDateTokenUs(int64_t timestampUs, std::string_view timezone) {
+    std::lock_guard<std::mutex> lock(tzMutex);
+    struct tm localTm = ToLocalTm(timestampUs, timezone);
+    // days_from_civil, deliberately NOT mktime: a token is a pure date, so it
+    // must not pick up any zone's offset on the way back out.
+    date::year_month_day ymd{
+        date::year{localTm.tm_year + 1900},
+        date::month{static_cast<unsigned>(localTm.tm_mon + 1)},
+        date::day{static_cast<unsigned>(localTm.tm_mday)}};
+    return std::chrono::duration_cast<std::chrono::microseconds>(
+               date::sys_days{ymd}.time_since_epoch())
+        .count();
+}
+
 }  // namespace DateTimeUtil

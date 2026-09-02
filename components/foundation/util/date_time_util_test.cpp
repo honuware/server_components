@@ -246,6 +246,102 @@ TEST(DateTimeUtilTest, LocalWallClockToUsHandlesAZoneWithoutDst) {
               UtcUs(2026, 12, 10, 17));
 }
 
+// ── Calendar date tokens: CalendarDateWallClockToUs / LocalDateTokenUs ──
+//
+// A token is UTC midnight of a date, standing for the DATE, not an instant —
+// the encoding event_sessions.occurrence_date_us uses. UtcUs(y, m, d, 0) is
+// exactly such a token.
+
+TEST(DateTimeUtilTest, CalendarDateWallClockToUsResolvesAWallClockTime) {
+    // The token for June 10 2026; 10:00 PDT (UTC-7) = 17:00 UTC.
+    EXPECT_EQ(CalendarDateWallClockToUs(
+                  UtcUs(2026, 6, 10, 0), 10 * 60, "America/Los_Angeles"),
+              UtcUs(2026, 6, 10, 17));
+}
+
+// THE reason this function exists, and the bug it was written to prevent.
+TEST(DateTimeUtilTest, CalendarDateWallClockToUsDoesNotSlipToThePreviousDay) {
+    const int64_t token = UtcUs(2026, 6, 10, 0);
+
+    // LocalWallClockToUs derives the local date FROM the instant, and UTC
+    // midnight Wednesday is Tuesday 17:00 in Los Angeles — so it answers with
+    // 10:00 on June 9. Handing a token to the wrong helper is a silent
+    // one-day error, which is why they are separate functions.
+    EXPECT_EQ(LocalWallClockToUs(token, 10 * 60, "America/Los_Angeles"),
+              UtcUs(2026, 6, 9, 17));
+    EXPECT_EQ(CalendarDateWallClockToUs(token, 10 * 60, "America/Los_Angeles"),
+              UtcUs(2026, 6, 10, 17));
+    EXPECT_EQ(CalendarDateWallClockToUs(token, 10 * 60, "America/Los_Angeles")
+                  - LocalWallClockToUs(token, 10 * 60, "America/Los_Angeles"),
+              86400LL * 1000000LL);
+
+    // In a positive-offset zone the naive helper slips the other way (UTC
+    // midnight June 10 is already 09:00 June 10 in Tokyo, so both agree) —
+    // the token form is the one that is right in every zone.
+    EXPECT_EQ(CalendarDateWallClockToUs(token, 10 * 60, "UTC"),
+              UtcUs(2026, 6, 10, 10));
+}
+
+TEST(DateTimeUtilTest, CalendarDateWallClockToUsIsCorrectAcrossDstBoundaries) {
+    // Spring forward, Sunday 8 March 2026: 10:00 PDT (UTC-7) = 17:00 UTC.
+    EXPECT_EQ(CalendarDateWallClockToUs(
+                  UtcUs(2026, 3, 8, 0), 10 * 60, "America/Los_Angeles"),
+              UtcUs(2026, 3, 8, 17));
+    // Fall back, Sunday 1 November 2026: 10:00 PST (UTC-8) = 18:00 UTC.
+    EXPECT_EQ(CalendarDateWallClockToUs(
+                  UtcUs(2026, 11, 1, 0), 10 * 60, "America/Los_Angeles"),
+              UtcUs(2026, 11, 1, 18));
+    // Phoenix never shifts.
+    EXPECT_EQ(CalendarDateWallClockToUs(
+                  UtcUs(2026, 6, 10, 0), 10 * 60, "America/Phoenix"),
+              UtcUs(2026, 6, 10, 17));
+    EXPECT_EQ(CalendarDateWallClockToUs(
+                  UtcUs(2026, 12, 10, 0), 10 * 60, "America/Phoenix"),
+              UtcUs(2026, 12, 10, 17));
+}
+
+TEST(DateTimeUtilTest, CalendarDateWallClockToUsNormalisesPastMidnight) {
+    // 25:30 on June 10 is 01:30 on June 11 — 08:30 UTC.
+    EXPECT_EQ(CalendarDateWallClockToUs(
+                  UtcUs(2026, 6, 10, 0), 25 * 60 + 30, "America/Los_Angeles"),
+              UtcUs(2026, 6, 11, 8, 30));
+}
+
+TEST(DateTimeUtilTest, LocalDateTokenUsUsesTheLocalDateNotTheUtcDate) {
+    // 03:00 UTC on June 11 is still 20:00 on June 10 in Los Angeles, so the
+    // studio's calendar date — and the token — is June 10. Reading the UTC
+    // date here is precisely the "starts a day late" bug in the day loop.
+    EXPECT_EQ(LocalDateTokenUs(UtcUs(2026, 6, 11, 3), "America/Los_Angeles"),
+              UtcUs(2026, 6, 10, 0));
+    EXPECT_EQ(LocalDateTokenUs(UtcUs(2026, 6, 11, 3), "UTC"),
+              UtcUs(2026, 6, 11, 0));
+}
+
+TEST(DateTimeUtilTest, LocalDateTokenUsIsATokenNotLocalMidnight) {
+    // GetMidnightUs returns the INSTANT of local midnight (07:00 UTC in June);
+    // the token is the timezone-free date. Confusing them reintroduces the
+    // offset this whole encoding exists to keep out.
+    const int64_t anyMoment = UtcUs(2026, 6, 10, 20);
+    EXPECT_EQ(LocalDateTokenUs(anyMoment, "America/Los_Angeles"),
+              UtcUs(2026, 6, 10, 0));
+    EXPECT_EQ(GetMidnightUs(anyMoment, "America/Los_Angeles"),
+              UtcUs(2026, 6, 10, 7));
+}
+
+TEST(DateTimeUtilTest, CalendarDateTokenRoundTrips) {
+    // Any wall clock on a date resolves to an instant that reports that date.
+    for (int minutes : { 0, 6 * 60, 10 * 60, 18 * 60, 23 * 60 + 59 }) {
+        for (const char* zone :
+             { "America/Los_Angeles", "America/New_York", "UTC" }) {
+            const int64_t token = UtcUs(2026, 6, 10, 0);
+            EXPECT_EQ(LocalDateTokenUs(
+                          CalendarDateWallClockToUs(token, minutes, zone), zone),
+                      token)
+                << "minutes=" << minutes << " zone=" << zone;
+        }
+    }
+}
+
 // ── Timezone-aware formatting tests ──
 
 TEST(DateTimeUtilTest, FormatTimeWithPacificTimezone) {

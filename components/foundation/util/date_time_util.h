@@ -51,4 +51,29 @@ int64_t GetMidnightUs(int64_t timestampUs, std::string_view timezone);
 int64_t LocalWallClockToUs(
     int64_t dayTimestampUs, int minutesAfterMidnight, std::string_view timezone);
 
+// A CALENDAR DATE TOKEN is UTC midnight of a date, standing for the date
+// itself rather than an instant — the encoding `event_sessions
+// .occurrence_date_us` uses. These two convert between a token and a real
+// instant; together they are what lets a recurring occurrence be stored as
+// (date, wall-clock minutes) and still be served as a true UTC instant.
+
+// The absolute instant of a wall-clock time on the calendar date `dateTokenUs`
+// stands for, resolved in `timezone`.
+//
+// NOT interchangeable with LocalWallClockToUs, which derives the local date
+// FROM the instant it is given: hand it a UTC-midnight token and any
+// negative-offset zone resolves it to the PREVIOUS day (UTC midnight Wednesday
+// is Tuesday 17:00 in Los Angeles). This one reads the token's UTC Y/M/D and
+// treats those numbers as the local date, which is what a token means.
+//
+// `minutesAfterMidnight` may exceed 1440; it normalises into the next day.
+int64_t CalendarDateWallClockToUs(
+    int64_t dateTokenUs, int minutesAfterMidnight, std::string_view timezone);
+
+// The inverse: the calendar date token for the date on which `timestampUs`
+// falls in `timezone`. Note this is NOT GetMidnightUs — that returns the
+// INSTANT of local midnight, which is offset from UTC midnight; this returns
+// the timezone-free token for the same date.
+int64_t LocalDateTokenUs(int64_t timestampUs, std::string_view timezone);
+
 }
