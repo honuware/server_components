@@ -171,7 +171,20 @@ void GetScaledPhoto(
 
         resp.code = 200;
         resp.set_header("Content-Type",
-            "image/" + scaledResult.photo.type);
+            Images::ImageMimeType(scaledResult.photo.type));
+        // Polish Phase 11.1 — THE SVG RULE, stated where the bytes leave the
+        // building.
+        //
+        // An uploaded SVG is executable content served from OUR OWN origin: it
+        // can carry <script>, <foreignObject>, external references and on*
+        // handlers. We do not sanitise it. What makes that safe is that every
+        // render path is PASSIVE — <img src> for pictures, a CSS mask-image
+        // for theme-tinted icons. The browser runs nothing in either.
+        //
+        // So: nothing may render one of these inline, via <object>, <embed>,
+        // or innerHTML. `nosniff` is the server's half of that bargain — it
+        // stops a browser re-deciding the type of anything served here.
+        resp.set_header("X-Content-Type-Options", "nosniff");
         // Cache policy splits on the public/authenticated path. BOTH
         // sides revalidate; they differ only in who may store the bytes.
         //

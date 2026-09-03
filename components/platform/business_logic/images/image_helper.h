@@ -16,6 +16,15 @@
 
 namespace Images {
 
+// The HTTP Content-Type for a STORED image type ("png", "jpeg", "svg", ...).
+//
+// Not `"image/" + type`, which is what the serving endpoints used to build:
+// that yields `image/svg` for a vector, and browsers will not render an SVG
+// served under it — the registered type is `image/svg+xml`. Every other format
+// this system stores happens to have a subtype equal to its stored name, which
+// is why the concatenation went unnoticed until a vector arrived.
+std::string ImageMimeType(std::string_view storedType);
+
 class ImageHelper {
 public:
     ImageHelper(DatabaseHelper databaseHelper);
@@ -91,6 +100,19 @@ public:
         Transaction& transaction,
         int64_t targetBytes);
 
+    // Is this a VECTOR image? (Polish Phase 11.)
+    //
+    // A vector is the one stored type that must never reach ImageResize:
+    // there is nothing to resize — it scales inherently — and handing an SVG
+    // to a decoder written for raster formats is exactly the shape of the
+    // PNG-alpha bug (Phase 5), a format reaching a code path written for a
+    // different one. ImageTypeFromString deliberately returns -1 for it, so
+    // every caller that branches on that value has to ask this first.
+    //
+    // Accepts the stored subtype ("svg"), the MIME subtype ("svg+xml") and the
+    // full MIME type, because uploads arrive spelled all three ways.
+    static bool IsVectorType(std::string_view type);
+
 private:
     DatabaseHelper databaseHelper_;
     Secrets::SecretsHelperPtr secretsHelper_;
@@ -108,6 +130,7 @@ private:
         int maxWidth,
         int maxHeight);
     static int ImageTypeFromString(std::string_view type);
+
 };
 
 }  // namespace Images

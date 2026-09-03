@@ -95,7 +95,12 @@ void GetPhoto(
 
         resp.code = 200;
         resp.set_header("Content-Type",
-            "image/" + photoData->type);
+            Images::ImageMimeType(photoData->type));
+        // Polish Phase 11.1 — see the note in get_scaled_photo.cpp: an
+        // uploaded SVG is served from our own origin and is never sanitised,
+        // so it must only ever be rendered passively. `nosniff` stops a
+        // browser re-deciding the type of what we hand it.
+        resp.set_header("X-Content-Type-Options", "nosniff");
         // `private, no-cache`, matching the AUTHENTICATED branch of
         // get_scaled_photo — and note this endpoint is authenticated for
         // EVERY table it serves (see the login + IsTableAllowed checks

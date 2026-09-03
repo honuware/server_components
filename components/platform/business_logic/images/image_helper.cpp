@@ -60,7 +60,23 @@ int ImageHelper::ImageTypeFromString(std::string_view type) {
     } else if (type == "tiff") {
         return ImageResize::IMAGE_TYPE_TIFF;
     }
+    // NOTE: "svg" is deliberately absent — there is no raster enum for it and
+    // it must never reach ImageResize. See IsVectorType.
     return -1;
+}
+
+std::string ImageMimeType(std::string_view storedType) {
+    if (ImageHelper::IsVectorType(storedType)) return "image/svg+xml";
+    return "image/" + std::string(storedType);
+}
+
+bool ImageHelper::IsVectorType(std::string_view type) {
+    std::string_view subtype = type;
+    const auto slash = subtype.rfind('/');
+    if (slash != std::string_view::npos) {
+        subtype = subtype.substr(slash + 1);
+    }
+    return subtype == "svg" || subtype == "svg+xml";
 }
 
 PhotoData ImageHelper::EnforceMaxDimensions(
@@ -118,9 +134,11 @@ UploadResult ImageHelper::UploadAndAssociatePhoto(
         return result;
     }
 
-    // Validate image type
-    int imageTypeEnum = ImageTypeFromString(imageType);
-    if (imageTypeEnum < 0) {
+    // Validate image type. A vector is legal but has no raster enum, so it is
+    // admitted here rather than by ImageTypeFromString (Polish Phase 11.1).
+    const bool isVector = IsVectorType(imageType);
+    int imageTypeEnum = isVector ? -1 : ImageTypeFromString(imageType);
+    if (!isVector && imageTypeEnum < 0) {
         result.errorMessage = "Unsupported image type '"
             + std::string(imageType) + "'";
         return result;
@@ -142,8 +160,24 @@ UploadResult ImageHelper::UploadAndAssociatePhoto(
         }
     }
 
-    PhotoData photo = EnforceMaxDimensions(
-        imageBytes, imageType, maxWidth, maxHeight);
+    // A vector is stored exactly as uploaded. The max-DIMENSION cap is
+    // meaningless for it (it has no pixels to exceed), and enforcing it would
+    // mean decoding the file. The max-BYTES cap still applies and is enforced
+    // at the upload endpoints, which is the bound that matters here.
+    //
+    // Width/height are recorded as 0: an honest "no intrinsic raster size"
+    // rather than a number invented by parsing the file. Consumers that show
+    // dimensions must read 0 as "vector" (see GetPhotoDimensions callers).
+    PhotoData photo;
+    if (isVector) {
+        photo.bytes = imageBytes;
+        photo.type = std::string(imageType);
+        photo.width = 0;
+        photo.height = 0;
+    } else {
+        photo = EnforceMaxDimensions(
+            imageBytes, imageType, maxWidth, maxHeight);
+    }
 
     // If item already has a photo, delete the old one
     if (tableItemPhotos_.HasPhoto(transaction, tableName, tableItemId)) {
@@ -308,6 +342,28 @@ ScaledPhotoResult ImageHelper::GetOrCreateScaledPhoto(
     }
 
     std::string sourceType = sourceInstanceRow.at("type");
+
+    // Polish Phase 11.2 — a VECTOR has no scaled derivatives.
+    //
+    // Short-circuit BEFORE ImageTypeFromString, and before anything touches
+    // ImageResize: an SVG scales inherently, so the requested box is simply
+    // ignored and the source bytes are served. No `scaled_photos` row is
+    // written — there is no derivative to cache, and caching one per requested
+    // box would fill the table with identical copies of the same file.
+    //
+    // This is what keeps every caller working unchanged:
+    // /api/get_scaled_photo/<table>/<id>/<w>/<h> stays the one URL every
+    // component builds, and the server decides whether the numbers mean
+    // anything. No consumer needs to know it is holding a vector.
+    if (IsVectorType(sourceType)) {
+        result.success = true;
+        result.photo.bytes = ByteaHexDecode(sourceInstanceRow.at("photo"));
+        result.photo.type = sourceType;
+        result.photo.width = 0;
+        result.photo.height = 0;
+        return result;
+    }
+
     int imageTypeEnum = ImageTypeFromString(sourceType);
     if (imageTypeEnum < 0) {
         result.errorMessage = "Unsupported source image type";

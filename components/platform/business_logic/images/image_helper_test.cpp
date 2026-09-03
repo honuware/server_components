@@ -232,5 +232,106 @@ TEST(ImageHelperTest, GetScaledPhotoStorageStatsEmpty) {
     });
 }
 
+// ---- Polish Phase 11: vector (SVG) support ----
+
+// A minimal but REAL svg document — the same shape an export produces, with an
+// XML declaration ahead of the root element.
+std::string_view MakeTestSvg() {
+    return R"SVG(<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <path d="M4 4h16v16H4z"/>
+</svg>
+)SVG";
+}
+
+TEST(ImageHelperTest, IsVectorTypeAcceptsEverySpellingAndNothingElse) {
+    // Uploads arrive spelled all three ways, and every raster type must stay
+    // out — a false positive here would route a JPEG down the no-resize path.
+    EXPECT_TRUE(ImageHelper::IsVectorType("svg"));
+    EXPECT_TRUE(ImageHelper::IsVectorType("svg+xml"));
+    EXPECT_TRUE(ImageHelper::IsVectorType("image/svg+xml"));
+    for (const char* raster : {"jpeg", "jpg", "png", "gif", "webp", "bmp",
+                               "tiff", "image/png", ""}) {
+        EXPECT_FALSE(ImageHelper::IsVectorType(raster)) << raster;
+    }
+}
+
+TEST(ImageHelperTest, ImageMimeTypeUsesTheRegisteredSvgType) {
+    // "image/" + type would yield "image/svg", under which browsers refuse to
+    // render the file. Every raster type happens to agree with concatenation,
+    // which is why this went unnoticed until a vector arrived.
+    EXPECT_EQ(ImageMimeType("svg"), "image/svg+xml");
+    EXPECT_EQ(ImageMimeType("png"), "image/png");
+    EXPECT_EQ(ImageMimeType("jpeg"), "image/jpeg");
+}
+
+TEST(ImageHelperTest, UploadStoresAnSvgByteForByte) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UploadSvg", [&](Transaction& transaction) {
+        DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
+        TableHelpers::PhotoSupportTables photoSupportTables(databaseHelper);
+        photoSupportTables.AddPhotoSupportTable(transaction, "people");
+
+        auto secretsHelper = Secrets::Test::MakeTestSecretsHelper();
+        ImageHelper imageHelper(databaseHelper, secretsHelper);
+
+        const std::string_view svg = MakeTestSvg();
+        const std::vector<char> bytes(svg.begin(), svg.end());
+        UploadResult result = imageHelper.UploadAndAssociatePhoto(
+            transaction, "people", 1, bytes, "svg");
+
+        ASSERT_TRUE(result.success) << result.errorMessage;
+        EXPECT_EQ(result.sourcePhoto.type, "svg");
+        // 0x0 is the honest answer: no intrinsic RASTER size. A number here
+        // would mean the server had parsed the file, which is the thing the
+        // security position avoids.
+        EXPECT_EQ(result.sourcePhoto.width, 0);
+        EXPECT_EQ(result.sourcePhoto.height, 0);
+
+        // Stored byte-for-byte — nothing re-encoded it on the way in.
+        auto stored = imageHelper.GetSourcePhotoData(transaction, "people", 1);
+        ASSERT_TRUE(stored.has_value());
+        EXPECT_EQ(std::string(stored->bytes.begin(), stored->bytes.end()),
+                  std::string(svg));
+    });
+}
+
+TEST(ImageHelperTest, ScalingAnSvgReturnsTheSourceAndCachesNothing) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("ScaleSvg", [&](Transaction& transaction) {
+        DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
+        TableHelpers::PhotoSupportTables photoSupportTables(databaseHelper);
+        photoSupportTables.AddPhotoSupportTable(transaction, "people");
+
+        auto secretsHelper = Secrets::Test::MakeTestSecretsHelper();
+        ImageHelper imageHelper(databaseHelper, secretsHelper);
+
+        const std::string_view svg = MakeTestSvg();
+        const std::vector<char> bytes(svg.begin(), svg.end());
+        ASSERT_TRUE(imageHelper.UploadAndAssociatePhoto(
+            transaction, "people", 1, bytes, "svg").success);
+
+        // Ask for two DIFFERENT boxes. Both return the same source bytes: the
+        // requested size is ignored because a vector scales inherently.
+        for (const auto& box : std::vector<std::pair<int, int>>{{64, 64},
+                                                               {944, 598}}) {
+            ScaledPhotoResult scaled = imageHelper.GetScaledPhotoForItem(
+                transaction, "people", 1, box.first, box.second);
+            ASSERT_TRUE(scaled.success) << scaled.errorMessage;
+            EXPECT_EQ(scaled.photo.type, "svg");
+            EXPECT_EQ(std::string(scaled.photo.bytes.begin(),
+                                  scaled.photo.bytes.end()),
+                      std::string(svg))
+                << "box " << box.first << "x" << box.second;
+        }
+
+        // And NOTHING was cached: there is no derivative to cache, and one row
+        // per requested box would fill the table with identical copies of the
+        // same file.
+        StorageStats stats = imageHelper.GetScaledPhotoStorageStats(transaction);
+        EXPECT_EQ(stats.totalScaledPhotos, 0);
+    });
+}
+
 }  // namespace
 }  // namespace Images
