@@ -17,6 +17,7 @@ const std::vector<ContentSlot>& SiteContentSlots() {
         {Secrets::kSiteTaglineImageUrl, SlotType::Url},
         {Secrets::kSiteAddressLines, SlotType::Lines},
         {Secrets::kSiteContactEmail, SlotType::Line},
+        {Secrets::kSiteAboutHeading, SlotType::Line},
         {Secrets::kSiteAboutMarkdown, SlotType::Markdown},
         {Secrets::kSiteStartIntro, SlotType::Line},
         {Secrets::kSiteMembershipBlurb, SlotType::Line},

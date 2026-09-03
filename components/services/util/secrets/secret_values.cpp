@@ -40,6 +40,12 @@ inline constexpr std::string_view kSiteHeroImageUrlValue = "";
 // site_assets), not by a second default here — config_secrets.name is UNIQUE,
 // so exactly one side may default a key.
 inline constexpr std::string_view kSiteTaglineImageUrlValue = "";
+// Polish Phase 9.3 — the only COPY slot the framework defaults, and it earns
+// the exception the same way the asset URLs do: empty is not "no heading", it
+// is "the SPA writes the heading itself" (it interpolates the tenant's own
+// name, which no fixed string here could). A studio that types a heading
+// overrides it; one that never opens the editor sees no change.
+inline constexpr std::string_view kSiteAboutHeadingValue = "";
 // Phase 3.3 of the security review: the activation link is the SPA
 // route the verification mail points at. The SPA reads the email and
 // secret from the query string, immediately POSTs to /api/verify, and
@@ -142,6 +148,7 @@ void FillInSecretsStringView(std::function<void(std::string_view, std::string_vi
     addSecret(kSiteFaviconUrl, kSiteFaviconUrlValue);
     addSecret(kSiteHeroImageUrl, kSiteHeroImageUrlValue);
     addSecret(kSiteTaglineImageUrl, kSiteTaglineImageUrlValue);
+    addSecret(kSiteAboutHeading, kSiteAboutHeadingValue);
     addSecret(kAuthVerifyEmailTimeLimitInMicros, kAuthVerifyEmailTimeLimitInMicrosValue);
     addSecret(kEmailVerificationExpirationWindowInMicros, kEmailVerificationExpirationWindowInMicrosValue);
     addSecret(kEmailVerificationAttemptLimit, kEmailVerificationAttemptLimitValue);

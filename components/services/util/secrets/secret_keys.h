@@ -61,6 +61,11 @@ inline constexpr std::string_view kSiteTaglineLines = "site_tagline_lines";
 inline constexpr std::string_view kSiteTaglineImageUrl = "site_tagline_image_url";
 inline constexpr std::string_view kSiteAddressLines = "site_address_lines";
 inline constexpr std::string_view kSiteContactEmail = "site_contact_email";
+// The heading above the About page's body. Empty means "keep the SPA's own
+// sentence", which interpolates the tenant name — so a site that never touches
+// this reads exactly as it did before the slot existed. Framework-defaulted to
+// "" for that reason, like the favicon and hero image.
+inline constexpr std::string_view kSiteAboutHeading = "site_about_heading";
 inline constexpr std::string_view kSiteAboutMarkdown = "site_about_markdown";
 inline constexpr std::string_view kSiteStartIntro = "site_start_intro";
 inline constexpr std::string_view kSiteMembershipBlurb = "site_membership_blurb";
