@@ -36,7 +36,20 @@ if(PROJECT_IS_TOP_LEVEL)
     # pulled into the app's build (the app's values are inherited into our scope).
     set(CMAKE_CXX_STANDARD 20)
 
-    # Changes how Boost is found and used. Use the old way for now (matches the app).
+    # Changes how Boost is found and used. CMP0167 (CMake 3.30+) drops CMake's own
+    # FindBoost module in favour of upstream/generated BoostConfig.cmake; NEW selects
+    # that config-mode lookup. We want NEW: Conan's CMakeDeps generator writes a
+    # BoostConfig.cmake for us, and FindBoost is on the removal track, so module mode
+    # is borrowed time — this was flipped from OLD when the dev boxes moved to
+    # CMake 4.4 (VS2026 migration, Phase 1.2).
+    #
+    # Verified against the generated config (Boost 1.86 via Conan, CMake 4.4.3):
+    # find_package(Boost 1.83 REQUIRED COMPONENTS filesystem) below succeeds in
+    # config mode, the 1.83 floor is satisfied by BoostConfigVersion.cmake, and both
+    # Boost::filesystem and the boost::boost target behind ${BOOST_LIB} are declared.
+    # One behaviour difference worth knowing: config mode does NOT enforce the
+    # COMPONENTS list the way FindBoost did — the generated config never sets
+    # Boost_filesystem_FOUND — so that clause is now documentation, not a check.
     #
     # The if(POLICY) guard is REQUIRED, not defensive noise: CMP0167 only exists
     # in CMake 3.30+, and cmake_policy(SET) on an unknown policy is a hard ERROR
@@ -44,11 +57,14 @@ if(PROJECT_IS_TOP_LEVEL)
     # declare cmake_minimum_required(VERSION 3.24) and the README promises 3.24+,
     # so an unguarded SET would break configure on every CMake in [3.24, 3.30) —
     # including the 3.25 that Debian bookworm (the gcc:14.2.0 build image, and the
-    # Linux CI job) installs from apt. On <3.30 the policy simply doesn't exist and
-    # FindBoost is the only lookup path anyway, so skipping the SET there yields
-    # exactly the behaviour the SET asks for on 3.30+.
+    # Linux CI job) installs from apt. On <3.30 the policy doesn't exist and
+    # FindBoost is the only lookup path anyway, so the Linux build is unaffected by
+    # this setting in either direction.
+    #
+    # Standalone-only: this whole branch is skipped in consumed mode, so the
+    # consuming apps keep their own Boost lookup until they make the same change.
     if(POLICY CMP0167)
-        cmake_policy(SET CMP0167 OLD)
+        cmake_policy(SET CMP0167 NEW)
     endif()
 
     if(!WIN32)
