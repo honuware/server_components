@@ -6,6 +6,7 @@
 #include "endpoint_auth_helper.h"
 #include "web_app.h"
 #include "business_logic/branding/site_content_slots.h"
+#include "business_logic/branding/site_info_app_blocks.h"
 #include "business_logic/branding/site_theme_tokens.h"
 #include "business_logic/tenancy/tenant_context.h"
 #include "sql_util/database_access/transaction.h"
@@ -69,7 +70,8 @@ Json::Value BuildSiteInfoResponse(
     std::string_view logoUrl,
     const KeyValueTable& content,
     const KeyValueTable& theme,
-    const Branding::SiteFontInventory& fonts) {
+    const Branding::SiteFontInventory& fonts,
+    const Json::JsonObject& appBlocks) {
     Json::JsonArray preconnects;
     for (const Branding::FontPreconnect& preconnect : fonts.preconnects) {
         preconnects.push_back(Json::Value(Json::JsonObject{
@@ -110,6 +112,11 @@ Json::Value BuildSiteInfoResponse(
             {"stylesheets", Json::Value(stylesheets)},
             {"faces", Json::Value(faces)},
         })},
+        // Whatever the app registered (Branding::RegisterSiteInfoBlock).
+        // Always present, even when empty — a client should not have to tell
+        // "this app contributes nothing" apart from "this server predates the
+        // seam".
+        {"app", Json::Value(appBlocks)},
     });
 }
 
@@ -120,6 +127,7 @@ Json::Value GetSiteInfo(EndpointAuthHelper& endpointAuthHelper) {
     KeyValueTable content;
     KeyValueTable theme;
     Branding::SiteFontInventory fonts;
+    Json::JsonObject appBlocks;
     endpointAuthHelper.GetTransactionProvider()->RunInTransaction(
         [&](Transaction& transaction) {
             Secrets::SecretsHelperPtr secrets =
@@ -154,6 +162,14 @@ Json::Value GetSiteInfo(EndpointAuthHelper& endpointAuthHelper) {
                     it->second = stack;
                 }
             }
+
+            // App-contributed blocks, in the same transaction so a block reads
+            // a consistent snapshot with the branding above it.
+            for (const Branding::SiteInfoBlock& block :
+                     Branding::SiteInfoBlocks()) {
+                appBlocks[block.name] = block.build(
+                    transaction, endpointAuthHelper.GetDatabaseHelper());
+            }
         });
     // Fall back to the tenants-row display name when the branding secret is blank
     // (e.g. a freshly provisioned tenant that hasn't set kMailSenderName yet).
@@ -161,7 +177,7 @@ Json::Value GetSiteInfo(EndpointAuthHelper& endpointAuthHelper) {
         displayName = endpointAuthHelper.GetTenantContext().displayName;
     }
     return BuildSiteInfoResponse(
-        displayName, websiteUrl, logoUrl, content, theme, fonts);
+        displayName, websiteUrl, logoUrl, content, theme, fonts, appBlocks);
 }
 
 }  // namespace Endpoints

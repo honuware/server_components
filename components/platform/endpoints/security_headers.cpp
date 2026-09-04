@@ -27,14 +27,31 @@ constexpr std::string_view kHsts =
 //   - img-src 'self' data:: data: covers inline base64 images the
 //     SPA renders (avatars, etc.)
 //   - connect-src 'self': fetch/XHR same-origin only
+//   - frame-src https://www.google.com: see below
 //   - frame-ancestors 'none': nobody embeds us in an iframe
 //   - base-uri 'none': can't change the document base
+//
+// ⚠️ `frame-src` is a DELIBERATE WIDENING of this policy, added for the
+// Location page's embedded map (Polish Phase 12.1). Two things about it:
+//
+//   - Without the directive an iframe falls back to `default-src 'self'`,
+//     which blocks the embed outright. There is no way to embed a third-party
+//     map without naming its origin here — that cost is inherent to the
+//     feature, not to the way it was built.
+//   - It is `frame-src`, NOT `frame-ancestors`, and the two point OPPOSITE
+//     ways. `frame-src` is who WE may embed; `frame-ancestors 'none'` is who
+//     may embed US, and that stays shut. Widening one does not widen the other.
+//
+// The allowance is exactly one origin, and it grants that origin nothing
+// beyond being rendered in a frame: it cannot reach our DOM, our cookies or
+// our storage.
 constexpr std::string_view kCsp =
     "default-src 'self'; "
     "script-src 'self'; "
     "style-src 'self' 'unsafe-inline'; "
     "img-src 'self' data:; "
     "connect-src 'self'; "
+    "frame-src https://www.google.com; "
     "frame-ancestors 'none'; "
     "base-uri 'none'";
 

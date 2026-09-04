@@ -236,6 +236,20 @@ TEST(SecurityHeadersTest, ProdModeEmitsHstsAndCsp) {
         EXPECT_NE(csp.find("frame-ancestors 'none'"), std::string::npos);
         EXPECT_NE(csp.find("base-uri 'none'"), std::string::npos);
 
+        // Polish Phase 12.1 — the map embed's one allowance, and the fact that
+        // it did NOT loosen the opposite direction.
+        //
+        // `frame-src` (who we may embed) and `frame-ancestors` (who may embed
+        // us) are easy to confuse, and confusing them here would silently make
+        // the site clickjackable. Asserting both together is the point of this
+        // pair: `frame-ancestors 'none'` above must survive alongside it.
+        EXPECT_NE(csp.find("frame-src https://www.google.com"),
+                  std::string::npos)
+            << "the Location page's map cannot load without this";
+        // Exactly one origin — not a wildcard, and not https: at large.
+        EXPECT_EQ(csp.find("frame-src *"), std::string::npos);
+        EXPECT_EQ(csp.find("frame-ancestors 'self'"), std::string::npos);
+
         // Always-on fires too — not exclusive with prod headers.
         EXPECT_EQ(GetHeader(res, "X-Content-Type-Options"), "nosniff");
         EXPECT_EQ(GetHeader(res, "Server"), "Knotty Yoga");

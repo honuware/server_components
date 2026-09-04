@@ -21,13 +21,20 @@ namespace Endpoints {
 // decision D2: extend this response, never add a second bootstrap call). Every
 // value is written as a JSON string; no numeric coercion, because a headline
 // that happens to read "2026" is still a headline.
+// `appBlocks` carries whatever the APP registered through
+// Branding::RegisterSiteInfoBlock, and lands under a top-level `app` key —
+// framework fields stay at the root, app fields are namespaced, and which is
+// which is legible from the payload alone. Empty for a tenant/app that
+// registered nothing, in which case `app` is an empty object rather than
+// absent, so a client never has to distinguish "no blocks" from "old server".
 Json::Value BuildSiteInfoResponse(
     std::string_view displayName,
     std::string_view websiteUrl,
     std::string_view logoUrl,
     const KeyValueTable& content,
     const KeyValueTable& theme,
-    const Branding::SiteFontInventory& fonts);
+    const Branding::SiteFontInventory& fonts,
+    const Json::JsonObject& appBlocks = {});
 
 // HTTP handler for `GET /api/site_info` (tenancy plan Phase 7.1, extended by
 // Tenant Theming Phase 1). Returns the resolved tenant's PUBLIC branding —
