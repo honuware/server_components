@@ -1,0 +1,59 @@
+# Shared Windows Conan profile. VS2026 migration, Phase 2.
+#
+# MIRRORED, byte-identical, in all three repos:
+#   server_components/conan/profiles/windows
+#   knottyyoga/server/knottyyoga_server/conan/profiles/windows
+#   communityfinder/server/communityfinder_server/conan/profiles/windows
+#
+# Yes, that is three copies of one file. The apps cannot share honuware's copy:
+# they run Conan BEFORE FetchContent pulls honuware in (deliberately -- honuware's
+# component declarations have to resolve the ${..._LIB} vars Conan generates), so
+# at the moment this profile is needed honuware's tree does not exist yet on a
+# clean checkout. Keep the three in sync the same way the conanfile.py `libraries`
+# lists are already kept in sync.
+#
+# HOW IT IS USED: the top-level CMakeLists names this file in CONAN_HOST_PROFILE
+# before the first find_package(). The cmake-conan provider turns each entry of
+# that list into a --profile:host= flag, so a profile that is merely committed to
+# the repo has NO effect -- it has to be named there. The composed list is
+#     <this file>;auto-cmake
+# where auto-cmake is the profile the provider generates from live CMake state.
+#
+# NOT in that list: "default", the machine-local ~/.conan2/profiles/default. It was
+# dropped on purpose. Everything it declares is also declared by auto-cmake, which
+# composes afterwards and wins, so its only practical contribution was stale
+# values -- the VS2022 box's default reads compiler.version=193 and cppstd=14 while
+# the real build is 194 and 20. It is also disposable: docker/Dockerfile, ci.yml
+# and the apps' package/build_linux_release.sh each run `conan profile detect
+# --force`, which overwrites anything hand-maintained there. That is also why
+# "just edit the default profile on both machines" is not the answer: it is not
+# version-controlled, it drifts silently, and our own tooling deletes it.
+#
+# DELIBERATELY NO [settings]. auto-cmake derives os, arch, compiler,
+# compiler.version (from MSVC_VERSION), compiler.cppstd (from CMAKE_CXX_STANDARD,
+# i.e. 20), compiler.runtime and build_type, and composes after this file, so any
+# setting written here would be redundant or silently overridden. Leaving
+# compiler.version to auto-detection is the whole point: 194 on a VS2022 box, 195
+# on VS2026 -- one committed file serving both.
+#
+# WHAT IT IS FOR: getting Boost's build engine past the toolset-14.5 gap.
+#
+# Building Boost under VS2026 (MSVC v145) makes the recipe write
+#     using msvc : 14.5 : ... ;
+# into user-config.jam. b2 5.3.2 declares
+#     .known-versions = 14.3 14.2 14.1 14.0 12.0 ...
+# in its msvc.jam -- no 14.5 -- so the toolset never configures and the Boost build
+# fails. b2 5.3.3 added 14.5.
+#
+# Boost's own requirement is b2/[>=5.2 <6], which 5.3.2 satisfies. That is the
+# trap: a machine with 5.3.2 already in its Conan cache keeps selecting it and
+# keeps failing, because nothing in the graph asks for anything newer. This floor
+# makes the stale copy lose. Verified on the VS2022 box against a cache holding
+# 5.3.2: without this file boost/1.86.0 resolved b2/5.3.2, with it b2/5.5.3.
+#
+# Scoped to boost rather than "*" so unrelated packages do not pick up a b2 build
+# dependency they have no use for. Tool requirements do not enter a package_id --
+# verified: boost's package_id is byte-identical with and without this profile --
+# so adding it rebuilds nothing.
+[tool_requires]
+boost/*: b2/[>=5.3.3 <6]

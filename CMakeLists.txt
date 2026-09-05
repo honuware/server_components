@@ -151,9 +151,43 @@ if(PROJECT_IS_TOP_LEVEL)
     # conanfile is a superset of ours), so it includes ConanLibImports.cmake
     # itself BEFORE pulling us in; we inherit the variables from its scope.
     #
+    # Compose the committed Windows profile into the provider's profile list.
+    # conan_provider.cmake reads CONAN_HOST_PROFILE (its own default is
+    # "default;auto-cmake") and turns each entry into a --profile:host= flag, so a
+    # profile file that is merely committed to the repo does NOTHING until it is
+    # named here.
+    #
+    # Note what is deliberately NOT in the list: "default", i.e. the machine-local
+    # ~/.conan2/profiles/default. Every setting it carries is also produced by
+    # auto-cmake, which composes after it and wins, so its only real contribution
+    # was stale values -- this box's default says compiler.version=193 and
+    # cppstd=14 while the actual build is 194 and 20. It is also disposable:
+    # docker/Dockerfile, .github/workflows/ci.yml and the app's
+    # package/build_linux_release.sh all run `conan profile detect --force`, so
+    # anything hand-edited into it gets overwritten. Leaving it out makes the host
+    # profile fully deterministic and version-controlled. CONAN_BUILD_PROFILE still
+    # uses "default" -- the build context genuinely is machine-specific.
+    #
+    # Ours is placed BEFORE auto-cmake so the CMake-derived settings still win. It
+    # contributes only a [tool_requires] floor for Boost's build engine, which
+    # applies from the host profile alone (verified). See conan/profiles/windows.
+    #
+    # Set as a normal variable, not a cache entry: the provider already created the
+    # cache entry when this file was included at project() time, and a normal
+    # variable in this scope shadows it for the find_package() below -- which is
+    # where the provider macro actually runs. WIN32-only because the profile
+    # addresses an MSVC toolset problem; the Linux build drives Conan directly and
+    # never consults CONAN_HOST_PROFILE at all.
+    if(WIN32)
+        set(CONAN_HOST_PROFILE
+            "${CMAKE_CURRENT_LIST_DIR}/conan/profiles/windows;auto-cmake")
+    endif()
+
     # Note the language service providers (conan_provider.cmake) are DEFERRED and
     # won't run until something is requested, so ConanLibImports.cmake won't be
     # generated yet. A benign find_package for a piece of Boost we use forces it.
+    # It is also the FIRST find_package in the build, which is what makes the
+    # CONAN_HOST_PROFILE above take effect.
     find_package(Boost 1.83 REQUIRED COMPONENTS filesystem)
 
     # Find Conan2 generated libraries (${XXX_LIB} variables).
