@@ -24,7 +24,12 @@ class Library(NamedTuple):
 # Third-party deps used by the honuware components only. The app/CLI-only deps
 # from the knottyyoga recipe (ftxui, replxx — the test-helper TUI) are dropped.
 libraries = [
-    Library("abseil", "20220623.1", CMakeInfo("absl", "abseil::abseil")),
+    # DO NOT go back below 2025.x. Like libtiff 4.6.0, the 20220623.1 recipe
+    # tool_requires cmake/[>=3.16 <4], forcing a CMake 3.x that cannot emit the
+    # "Visual Studio 18 2026" generator -- it was the second of the two hard
+    # VS2026 blockers. Note honuware itself never links ${ABSL_LIB}; the entry is
+    # here only to keep the app conanfiles a strict superset of this one.
+    Library("abseil", "20250814.2", CMakeInfo("absl", "abseil::abseil")),
     Library("boost", "1.86.0", CMakeInfo("Boost", "boost::boost")),
     Library("crowcpp-crow", "1.3.3", CMakeInfo("Crow", "Crow::Crow")),
     Library("date", "3.0.5", CMakeInfo("date", "date::date")),
@@ -44,7 +49,7 @@ libraries = [
     # Tenant Theming Phase 9 — theme bundles travel as a .zip through the admin
     # page. Deliberately not hand-rolled: the READER parses untrusted input,
     # which is the wrong place to save a dependency.
-    Library("libzip", "1.10.1", CMakeInfo("libzip", "libzip::zip")),
+    Library("libzip", "1.11.4", CMakeInfo("libzip", "libzip::zip")),
     Library("mailio", "0.25.3", CMakeInfo("mailio", "mailio::mailio")),
     # NOTE the capitalisation: Conan's openssl recipe sets cmake_file_name="OpenSSL",
     # so CMakeDeps emits OpenSSLConfig.cmake. find_package() filename lookup is
@@ -56,7 +61,7 @@ libraries = [
     # lowercase openssl::openssl (that IS what OpenSSLConfig.cmake declares, alongside
     # OpenSSL::SSL and OpenSSL::Crypto), and ${OPENSSL_LIB} is unchanged because the
     # generator upper-cases the package name either way.
-    Library("openssl", "3.5.2", CMakeInfo("OpenSSL", "openssl::openssl")),
+    Library("openssl", "3.5.8", CMakeInfo("OpenSSL", "openssl::openssl")),
     Library("zlib", "1.3.2", CMakeInfo("ZLIB", "ZLIB::ZLIB")),
 ]
 
