@@ -142,8 +142,11 @@ void Scheduler::Shutdown() {
         jobScheduler_->Stop();
     }
     if (refreshTimer_) {
-        boost::system::error_code ec;
-        refreshTimer_->cancel(ec);
+        // Boost 1.91 removed basic_waitable_timer::cancel(error_code&) -- see the
+        // same change in JobScheduler::Stop. Note the asymmetry with signals_
+        // below: signal_set KEPT its error_code overload, so that call is
+        // deliberately left alone rather than made to match this one.
+        refreshTimer_->cancel();
     }
     if (!ioContext_.stopped()) {
         ioContext_.stop();

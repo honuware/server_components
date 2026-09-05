@@ -30,10 +30,37 @@ libraries = [
     # VS2026 blockers. Note honuware itself never links ${ABSL_LIB}; the entry is
     # here only to keep the app conanfiles a strict superset of this one.
     Library("abseil", "20250814.2", CMakeInfo("absl", "abseil::abseil")),
+    # boost and mailio MOVE TOGETHER. mailio pins boost EXACTLY (not a range):
+    # 0.25.3 -> boost/1.86.0, 0.26.0 -> boost/1.91.0. That pin, not a preference,
+    # is why boost sits at 1.86. Changing one without the other fails graph
+    # resolution with a version conflict before anything compiles.
+    #
+    # HELD at 1.86.0 / 0.25.3 DELIBERATELY (VS2026 migration, Phase 5.1). The
+    # 1.91.0 / 0.26.0 pair was tried and reverted: it compiles and links, but
+    # SEGFAULTS in the real SMTP send path -- MailHelperTest.SendMessage dies
+    # inside mailio's smtps connect/submit, where 0.25.3 completes. A crash in
+    # the mail path is a worse trade than an old mailio.
+    #
+    # Neither version is required for VS2026: the b2 floor in
+    # conan/profiles/windows is what makes Boost build on the v145 toolset.
+    #
+    # The CODE is already adapted for 1.91, so this pin can move the moment the
+    # mailio crash is understood. Two things were fixed and kept:
+    #   - util/thread_pool.h no longer leaks Boost.Asio into its includers. From
+    #     1.91, Boost.Asio and crow's standalone Asio share global helper
+    #     namespaces and cannot coexist in one translation unit.
+    #   - the scheduler no longer calls basic_waitable_timer::cancel(error_code&),
+    #     which 1.91 removed.
     Library("boost", "1.86.0", CMakeInfo("Boost", "boost::boost")),
     Library("crowcpp-crow", "1.3.3", CMakeInfo("Crow", "Crow::Crow")),
     Library("date", "3.0.5", CMakeInfo("date", "date::date")),
-    Library("gtest", "1.12.1", CMakeInfo("GTest", "gtest::gtest")),
+    # 1.17 requires C++17; we build at 20. The only exposure in this repo is the
+    # two custom matchers in components/testing/test/src/util (JsonWvalueMatcher,
+    # PostGresResultMatcher), which use ::testing::MatcherInterface / MakeMatcher
+    # -- still the supported custom-matcher API. None of the macros gtest removed
+    # (INSTANTIATE_TEST_CASE_P, TYPED_TEST_CASE, ::testing::TestCase) appear
+    # anywhere here; the no-fixtures convention is what keeps that surface small.
+    Library("gtest", "1.17.0", CMakeInfo("GTest", "gtest::gtest")),
     # 7.86.0 -> 8.21.0 looks like a major break and is not: curl kept its API
     # across the 8 boundary, and CURL::libcurl is unchanged.
     Library("libcurl", "8.21.0", CMakeInfo("CURL", "CURL::libcurl")),

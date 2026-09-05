@@ -173,8 +173,12 @@ void JobScheduler::Stop() {
     started_ = false;
     for (auto& timer : timers_) {
         if (timer) {
-            boost::system::error_code ec;
-            timer->cancel(ec);
+            // Boost 1.91 removed basic_waitable_timer::cancel(error_code&). The
+            // surviving cancel() returns the number of handlers it cancelled and
+            // cannot fail, so there is nothing left to swallow -- the error_code
+            // that used to sit here existed only to select the non-throwing
+            // overload. Do not reintroduce it; it no longer compiles.
+            timer->cancel();
         }
     }
     timers_.clear();
