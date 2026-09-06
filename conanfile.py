@@ -67,7 +67,17 @@ libraries = [
     Library("libjpeg", "9f"),
     Library("libpng", "1.6.58", CMakeInfo("PNG", "PNG::PNG")),
     Library("libpqxx", "7.10.5", CMakeInfo("libpqxx", "libpqxx::pqxx", "PQXX_LIB")),
-    Library("libsodium", "1.0.20", CMakeInfo("libsodium", "libsodium::libsodium")),
+    # DO NOT go back below 1.0.21. libsodium builds through a checked-in MSBuild
+    # SOLUTION, not CMake -- so this was a THIRD VS2026 blocker, and one the
+    # cmake/[... <4] scan could never have found. The 1.0.20 recipe's
+    # _msvc_sln_folder maps only msvc 190-193 to a solution folder and silently
+    # falls back to "vs2022" for anything newer, then injects
+    # PlatformToolset=v145 into that VS2022 project:
+    #     error MSB8020: The build tools for v145 (Platform Toolset = 'v145')
+    #     cannot be found
+    # 1.0.21+ add "194": "vs2022" and "195": "vs2026". Invisible on a 194 box
+    # because a prebuilt binary exists there and the MSBuild path never runs.
+    Library("libsodium", "1.0.22", CMakeInfo("libsodium", "libsodium::libsodium")),
     # DO NOT go back below 4.7.x. The 4.6.0 recipe tool_requires cmake/[>=3.18 <4],
     # which forces Conan to fetch a CMake 3.x -- and CMake 3.x cannot emit the
     # "Visual Studio 18 2026" generator, so 4.6.0 makes the whole graph unbuildable
