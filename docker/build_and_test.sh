@@ -50,12 +50,23 @@ echo "[honuware] build  : $BUILD_DIR"
 # That is expected and harmless: its contents are derived purely from the
 # `libraries` list and are platform-independent, so it is byte-identical to the
 # one Visual Studio generates. It is gitignored.
+#
+# CMakeUserPresets.json is the OTHER file conan writes next to the recipe, and
+# unlike ConanLibImports.cmake it is NOT harmless here. Visual Studio switches to
+# CMake Presets mode the moment it sees one and then ignores CMakeSettings.json --
+# where this project's CONAN_CMD / CMAKE_PROJECT_TOP_LEVEL_INCLUDES wiring lives --
+# leaving VS with no launchable configuration and a Debug menu that silently does
+# nothing. Since /src is a bind mount of the Windows tree, a Linux gate run would
+# otherwise break the developer's IDE from inside the container, writing an
+# `include` that points at the Linux /build path. Verified: without this flag the
+# file appears in the mounted tree; with it, it does not.
 echo "[honuware] conan install ..."
 conan install "$SRC_DIR" \
     --output-folder="$BUILD_DIR" \
     --build=missing \
     -s build_type=Release \
-    -s compiler.cppstd=17
+    -s compiler.cppstd=17 \
+    -c tools.cmake.cmaketoolchain:user_presets=''
 
 # Conan 2.28+ nests generators under conan/; older versions put the toolchain at
 # the output-folder root. Probe rather than assume.

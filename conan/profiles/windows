@@ -57,3 +57,31 @@
 # so adding it rebuilds nothing.
 [tool_requires]
 boost/*: b2/[>=5.3.3 <6]
+
+# WHAT ELSE IT IS FOR: stopping Conan from writing CMakeUserPresets.json.
+#
+# CMakeToolchain writes CMakeUserPresets.json next to the RECIPE (the CMake source
+# root), separately from --output-folder. Visual Studio switches to CMake PRESETS
+# mode the moment it sees that file, and then ignores CMakeSettings.json -- which
+# is where CONAN_CMD and CMAKE_PROJECT_TOP_LEVEL_INCLUDES live. There is no
+# CMakePresets.json at any repo root to fall back on, and the file Conan writes
+# only include()s one buried in the build output tree, so VS ends up with no
+# launchable configuration and "Debug -> Debug and Launch Settings" silently does
+# NOTHING. No error, no dialog -- the menu item just doesn't respond, which is a
+# miserable thing to diagnose from first principles.
+#
+# Empty disables the file entirely. From `conan config list`:
+#   tools.cmake.cmaketoolchain:user_presets: (Experimental) Select a different name
+#   instead of CMakeUserPresets.json, empty to disable
+#
+# EXPERIMENTAL is not decoration: if a future Conan renames or removes this conf,
+# the symptom comes back as a dead Debug menu rather than as an error. Start here.
+#
+# The three Linux harnesses pass the same setting on the `conan install` command
+# line (docker/build_common.sh and friends) and NEED their own copy -- this profile
+# is composed into CONAN_HOST_PROFILE only on WIN32. That matters more than it
+# sounds: the containers mount the Windows working tree at /src, so before this was
+# set, running the Linux gate would write the file into the developer's checkout
+# and break their IDE from inside a container. Verified empirically both ways.
+[conf]
+tools.cmake.cmaketoolchain:user_presets=

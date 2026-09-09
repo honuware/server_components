@@ -160,7 +160,8 @@ jobs:
               --output-folder=build \
               --build=missing \
               -s build_type=Release \
-              -s compiler.cppstd=17
+              -s compiler.cppstd=17 \
+              -c tools.cmake.cmaketoolchain:user_presets=''
 
       - name: CMake configure
         # Conan 2.28+ nests generators under conan/; older versions put the
