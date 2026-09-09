@@ -46,8 +46,18 @@ here ever needs an application header, a boundary has been broken.
 Prerequisites: a C++20 compiler (MSVC 2019+ on Windows, GCC on Linux),
 CMake 3.24+, Conan 2.x, and a reachable PostgreSQL instance for the tests.
 
-On Windows, open the folder in Visual Studio (`CMakeSettings.json` wires up the
-Conan toolchain) or:
+On Windows, open the folder in Visual Studio (`CMakePresets.json` defines the
+`x64-Debug` configure/build/test presets and wires up the Conan toolchain via
+`CMAKE_PROJECT_TOP_LEVEL_INCLUDES=conan_provider.cmake`), or drive the same
+presets from a developer prompt:
+
+```bash
+cmake --preset x64-Debug
+cmake --build --preset x64-Debug
+ctest --preset x64-Debug
+```
+
+or configure by hand:
 
 ```bash
 mkdir build && cd build
@@ -100,6 +110,46 @@ login user (`docker`) must also exist.
 The test database name (`honuware_test`) is deliberately distinct so the suite
 can share a Postgres instance with an application's own test database without
 collision.
+
+### Debug targets in Visual Studio (`tools/sync_launch_targets.ps1`)
+
+Visual Studio stores per-target debug settings — command-line `args` and `env` —
+in `.vs/launch.vs.json`. Two things make that file awkward to maintain by hand:
+
+- **`.vs/` is gitignored**, so it is disposable. Everything you type into it is
+  lost the moment the folder is cleared, and clearing it is a standard fix for
+  VS getting confused about a configuration.
+- **VS 2026's *Debug > Debug and Launch Settings* is broken.** It writes the
+  entry but never opens the file, and *Targets View > Add Debug Configuration*
+  does nothing at all. Both fail with `ServiceUnavailableException: The
+  VsTextManagerClass service is unavailable` in `ActivityLog.xml`. The only
+  working entry point is right-clicking the root `CMakeLists.txt` >
+  *Add Debug Configuration*, which cannot populate `projectTarget` and appends a
+  blank duplicate every time it runs.
+
+So generate the file instead. From a configured build tree:
+
+```powershell
+.\tools\sync_launch_targets.ps1 -RepoPath . [-Config x64-Debug] [-Defaults <file>] [-WhatIf]
+```
+
+It enumerates every executable target from the CMake file API, preserves entries
+already present, prunes the blank-`projectTarget` leftovers, and skips imported
+targets. `-WhatIf` prints the result without writing. `-Config` defaults to the
+most recently modified directory under `out/build`, so pass it explicitly when
+more than one configuration exists.
+
+To keep `args`/`env` across `.vs/` wipes, copy `tools/launch_defaults.example.json`
+to `tools/launch_defaults.local.json` (gitignored — it holds DB credentials) and
+fill in your values. The script stamps them onto every generated entry: `all`
+applies to all targets, and `targets` keys match the `projectTarget` label
+exactly or as a wildcard, so `"*tests.exe*"` catches the nested
+`name.exe (test\name.exe)` form without retyping it. This is the practical place
+to put the `HONUWARE_DB_*` variables above and a `--gtest_filter` for the test
+executable.
+
+The script is application-agnostic — it takes a repo path and reads only the
+CMake file API — so the consuming application repos use this same copy.
 
 ## Consuming these components
 

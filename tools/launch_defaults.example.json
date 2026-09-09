@@ -1,0 +1,40 @@
+{
+  "_comment": "Copy to launch_defaults.local.json (gitignored) beside this file, or at the repo root, and edit. tools/sync_launch_targets.ps1 stamps these onto .vs/launch.vs.json, which is gitignored and therefore disposable. 'all' applies to every target; 'targets' keys match the projectTarget label exactly or as a wildcard. Values here win over what is already in launch.vs.json.",
+
+  "_env_reference": "HONUWARE_DB_HOST (default localhost on Windows, postgresql on Linux), _PORT (5432), _USER (docker), _PASSWORD (docker), _NAME (app-supplied - overriding it points at a different database), _SSLMODE (prefer in release, unset in debug), _SSLROOTCERT. Legacy KNOTTYYOGA_DB_* names are accepted as fallbacks. Other vars: HONUWARE_ALLOW_DESTRUCTIVE (must be exactly \"1\" to permit drop-and-recreate), HONUWARE_LOG_DEST, HONUWARE_SECRET_KEY, HONUWARE_ORIGIN_SECRET, HONUWARE_TRUST_PROXY, HONUWARE_DEV_CORS_ORIGIN, HONUWARE_CONTROL_DB_NAME, HONUWARE_TENANT_MODE, CURL_CA_BUNDLE.",
+
+  "all": {
+    "env": {
+      "HONUWARE_DB_HOST": "localhost",
+      "HONUWARE_DB_PORT": "5432",
+      "HONUWARE_DB_USER": "docker",
+      "HONUWARE_DB_PASSWORD": "docker",
+      "HONUWARE_DB_SSLMODE": "disable"
+    }
+  },
+
+  "targets": {
+    "_comment_targets": "Wildcards match the full projectTarget label, including the nested 'name.exe (sub\\dir\\name.exe)' form.",
+
+    "*database_helper.exe*": {
+      "args": [
+        "--recreate_database"
+      ],
+      "env": {
+        "HONUWARE_ALLOW_DESTRUCTIVE": "1"
+      }
+    },
+
+    "*test_runner.exe*": {
+      "args": [
+        "--gtest_filter="
+      ]
+    },
+
+    "*tests.exe*": {
+      "args": [
+        "--gtest_filter="
+      ]
+    }
+  }
+}

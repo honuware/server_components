@@ -1,0 +1,51 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "x64-Debug",
+      "displayName": "x64-Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_PROJECT_TOP_LEVEL_INCLUDES": "conan_provider.cmake"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "x64-Debug",
+      "displayName": "x64-Debug",
+      "configurePreset": "x64-Debug"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "x64-Debug",
+      "displayName": "x64-Debug",
+      "configurePreset": "x64-Debug",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
