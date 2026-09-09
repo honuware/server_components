@@ -32,7 +32,7 @@
     {
       "all":     { "env": { "HONUWARE_DB_HOST": "localhost" } },
       "targets": {
-        "*tests.exe*":            { "args": ["--gtest_filter=Foo.*"] },
+        "*tests.exe*":            { "args": ["--gtest_filter=*"] },
         "honuware_test_runner.exe": { "env": { "HONUWARE_DB_SSLMODE": "disable" } }
       }
     }

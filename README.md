@@ -146,7 +146,9 @@ applies to all targets, and `targets` keys match the `projectTarget` label
 exactly or as a wildcard, so `"*tests.exe*"` catches the nested
 `name.exe (test\name.exe)` form without retyping it. This is the practical place
 to put the `HONUWARE_DB_*` variables above and a `--gtest_filter` for the test
-executable.
+executable. Use `--gtest_filter=*` as the standing value — that runs everything,
+and it is the pattern you narrow to something like `--gtest_filter=Foo.*` while
+chasing a failure. An *empty* `--gtest_filter=` runs no tests at all.
 
 The script is application-agnostic — it takes a repo path and reads only the
 CMake file API — so the consuming application repos use this same copy.

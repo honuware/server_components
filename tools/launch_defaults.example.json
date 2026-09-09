@@ -27,13 +27,13 @@
 
     "*test_runner.exe*": {
       "args": [
-        "--gtest_filter="
+        "--gtest_filter=*"
       ]
     },
 
     "*tests.exe*": {
       "args": [
-        "--gtest_filter="
+        "--gtest_filter=*"
       ]
     }
   }
