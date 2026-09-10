@@ -111,6 +111,57 @@ The test database name (`honuware_test`) is deliberately distinct so the suite
 can share a Postgres instance with an application's own test database without
 collision.
 
+### Environment variables
+
+Enumerated from the source, not from memory. Every `HONUWARE_*` name below is
+read through `Util::GetEnvWithFallback` (`components/foundation/util/env.h`),
+which tries the `HONUWARE_*` name first and falls back to the legacy
+`KNOTTYYOGA_*` name — so old deploy environments keep working. A `HONUWARE_*`
+that is set but *empty* still wins over the legacy name.
+
+**Database connection** (`database_helper_init.h`). For local work you normally
+need none of these — the defaults already resolve to the shared docker Postgres:
+
+| variable | default |
+|---|---|
+| `HONUWARE_DB_HOST` | `localhost` on Windows, `postgresql` on Linux |
+| `HONUWARE_DB_PORT` | `5432` |
+| `HONUWARE_DB_USER` | `docker` |
+| `HONUWARE_DB_PASSWORD` | `docker` |
+| `HONUWARE_DB_NAME` | **no framework default** — the application supplies it; setting this points a deploy at an alternate database |
+| `HONUWARE_DB_SSLMODE` | `prefer` in release, unset in debug; the docker gate sets `disable` |
+| `HONUWARE_DB_SSLROOTCERT` | unset; required for `sslmode=verify-full` against RDS |
+
+**The ones you actually set by hand:**
+
+| variable | why |
+|---|---|
+| `HONUWARE_ALLOW_DESTRUCTIVE` | must be **exactly `"1"`** — anything else, including `"true"` or `"yes"`, blocks. Gates `--recreate_database`, which refuses rather than self-healing without it |
+| `HONUWARE_SECRET_KEY` | at-rest key for `config_secrets`; non-prod falls back to a fixed dev key, so it is optional locally and **mandatory in production** |
+| `HONUWARE_MAIL_APP_PASSWORD` | read **at seed time** by the app's `create_database.cpp`, which UPDATEs the `config_secrets` row. Not needed at runtime once seeded |
+| `SCHEDULER_SERVICE_ACCOUNT_PASSWORD` | the scheduler service account. Seeding **throws** if unset; the scheduler also falls back to it when `--service_account_password` is empty |
+| `PORT` | server listen port — defaults differ per application, so check the app's `main.cpp` |
+
+**Set rarely, but real:**
+
+| variable | behaviour |
+|---|---|
+| `HONUWARE_VERSION` | build version in the health response, re-read on every call; falls back to `"unknown"`. Set on the host to pin which artifact is live |
+| `HONUWARE_TENANT_MODE` | `Fixed` (default — one tenant, no control database, no site header) or `Control` (multiplexes many sites off the control database's `tenants` table) |
+| `HONUWARE_FIXED_SITE_KEY` | Fixed mode only; overrides the site key, which otherwise defaults to the app database name |
+| `HONUWARE_CONTROL_DB_NAME` | Control mode only |
+| `HONUWARE_LOG_DEST` | where the `LogXxx()` streams write |
+| `HONUWARE_TRUST_PROXY`, `HONUWARE_ORIGIN_SECRET`, `HONUWARE_DEV_CORS_ORIGIN` | auth and CORS |
+| `HONUWARE_APP_NAME` | theme-bundle export metadata only; empty when unset |
+| `CURL_CA_BUNDLE` | overrides the working-directory-relative `certs/cacert.pem` |
+
+**Not environment variables, despite the naming.** `HONUWARE_API_BASE`,
+`HONUWARE_CRUD_ACCESS` and `HONUWARE_MOCK_OPTIONS` are **Angular
+dependency-injection tokens** in the UI, configured through `environment.ts`;
+setting them in the environment does nothing. `HONUWARE_SRC_DIR` is
+container-side only — on Windows the equivalent is the CMake cache variable
+`FETCHCONTENT_SOURCE_DIR_HONUWARE`.
+
 ### Debug targets in Visual Studio (`tools/sync_launch_targets.ps1`)
 
 Visual Studio stores per-target debug settings — command-line `args` and `env` —

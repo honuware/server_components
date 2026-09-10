@@ -1,7 +1,13 @@
 {
   "_comment": "Copy to launch_defaults.local.json (gitignored) beside this file, or at the repo root, and edit. tools/sync_launch_targets.ps1 stamps these onto .vs/launch.vs.json, which is gitignored and therefore disposable. 'all' applies to every target; 'targets' keys match the projectTarget label exactly or as a wildcard. Values here win over what is already in launch.vs.json.",
 
-  "_env_reference": "HONUWARE_DB_HOST (default localhost on Windows, postgresql on Linux), _PORT (5432), _USER (docker), _PASSWORD (docker), _NAME (app-supplied - overriding it points at a different database), _SSLMODE (prefer in release, unset in debug), _SSLROOTCERT. Legacy KNOTTYYOGA_DB_* names are accepted as fallbacks. Other vars: HONUWARE_ALLOW_DESTRUCTIVE (must be exactly \"1\" to permit drop-and-recreate), HONUWARE_LOG_DEST, HONUWARE_SECRET_KEY, HONUWARE_ORIGIN_SECRET, HONUWARE_TRUST_PROXY, HONUWARE_DEV_CORS_ORIGIN, HONUWARE_CONTROL_DB_NAME, HONUWARE_TENANT_MODE, CURL_CA_BUNDLE.",
+  "_env_reference": "Full table with defaults is in README.md under 'Environment variables'. Connection: HONUWARE_DB_HOST (localhost on Windows, postgresql on Linux), _PORT (5432), _USER (docker), _PASSWORD (docker), _NAME (app-supplied; overriding points at a different database), _SSLMODE (prefer in release, unset in debug), _SSLROOTCERT. Every HONUWARE_* name falls back to the legacy KNOTTYYOGA_* name.",
+
+  "_env_reference_set_by_hand": "HONUWARE_ALLOW_DESTRUCTIVE (must be exactly \"1\"; anything else blocks --recreate_database), HONUWARE_SECRET_KEY (mandatory in production, dev fallback locally), HONUWARE_MAIL_APP_PASSWORD (seed time only), SCHEDULER_SERVICE_ACCOUNT_PASSWORD (seeding throws if unset), PORT (default differs per app: 18081 communityfinder, 18080 knottyyoga).",
+
+  "_env_reference_rare": "HONUWARE_VERSION (health response; falls back to \"unknown\"), HONUWARE_TENANT_MODE (Fixed default | Control), HONUWARE_FIXED_SITE_KEY (Fixed mode; defaults to the app database name), HONUWARE_CONTROL_DB_NAME (Control mode), HONUWARE_LOG_DEST, HONUWARE_TRUST_PROXY, HONUWARE_ORIGIN_SECRET, HONUWARE_DEV_CORS_ORIGIN, HONUWARE_APP_NAME (theme-bundle export metadata), CURL_CA_BUNDLE.",
+
+  "_not_env_vars": "HONUWARE_API_BASE, HONUWARE_CRUD_ACCESS and HONUWARE_MOCK_OPTIONS are Angular DI tokens configured via environment.ts - setting them here does nothing. HONUWARE_SRC_DIR is container-side only; the Windows equivalent is the CMake cache variable FETCHCONTENT_SOURCE_DIR_HONUWARE.",
 
   "all": {
     "env": {

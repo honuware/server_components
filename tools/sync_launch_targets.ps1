@@ -54,6 +54,35 @@ $ErrorActionPreference = 'Stop'
 
 if (-not (Test-Path $RepoPath)) { throw "Repo path not found: $RepoPath" }
 
+# A parent folder can also be a CMake workspace pointing back at this one (VS
+# writes .vs\CMakeWorkspaceSettings.json with a "sourceDirectory"). If VS is
+# opened on THAT folder, its .vs\launch.vs.json is the file being used, and its
+# entries need "project" as the path relative to the workspace root - not the
+# bare "CMakeLists.txt" written below. Entries are not interchangeable between
+# the two, so warn rather than silently writing to the one nobody opens.
+$probe = Split-Path $RepoPath -Parent
+while ($probe) {
+    $ws = Join-Path $probe '.vs\CMakeWorkspaceSettings.json'
+    if (Test-Path $ws) {
+        $src = (Get-Content $ws -Raw | ConvertFrom-Json).sourceDirectory
+        if ($src) {
+            $resolved = Join-Path $probe $src
+            if ((Resolve-Path $resolved -ErrorAction SilentlyContinue).Path -eq (Resolve-Path $RepoPath).Path) {
+                Write-Warning @"
+$probe is also a CMake workspace and points its sourceDirectory at this folder.
+If you open VS on that folder instead, it uses ITS .vs\launch.vs.json, and those
+entries need "project": "$src\CMakeLists.txt" rather than the bare
+"CMakeLists.txt" this script writes. Pick one workspace and delete the other .vs.
+"@
+            }
+        }
+        break
+    }
+    $next = Split-Path $probe -Parent
+    if ($next -eq $probe) { break }
+    $probe = $next
+}
+
 $buildRoot = Join-Path $RepoPath 'out\build'
 if (-not (Test-Path $buildRoot)) {
     throw "No build tree at $buildRoot - configure the project first (cmake --preset <name>)."
