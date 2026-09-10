@@ -2,6 +2,47 @@
 
 This directory manages configuration secrets for the application.
 
+## A real credential NEVER gets a compiled-in default
+
+**This is the one rule in this directory that is not a style preference.** This
+repository is public and runs a public Actions workflow. A live credential
+placed in `secret_values.cpp` is disclosed the moment it is pushed, and stays
+disclosed in git history after it is removed — rotation is the only thing that
+closes it.
+
+**Understand why it happens, or it will happen again.** As the section below
+explains, defaults here are loaded *into the database on first run* **and**
+*into the test secrets helper automatically*. Putting a real password here
+therefore makes every test, on every machine, work with zero configuration.
+That convenience is exactly the trap: this is the most convenient place to put
+a secret and the one place it must never go. It has happened once already —
+`kMailAppPasswordValue` shipped a live Gmail app password until Phase 9.2.
+
+**The test that follows from it.** If a value can sit in a public repo, it is
+not a secret: SMTP host, port, auth method, sender address, brand strings and
+routing fragments all belong here with real defaults. If it cannot, it gets an
+**empty** default and the live value arrives at runtime:
+
+| tier | holds | where |
+|---|---|---|
+| store of record | real credentials, encrypted at rest | `config_secrets`, read by `secrets_helper.cpp` |
+| bootstrap key | the key decrypting the above | `HONUWARE_SECRET_KEY` env var — never in the DB (circular), never in the repo |
+| defaults | **non-secrets only** | `secret_values.cpp` / `app_secret_values.cpp` — public repo |
+
+Exactly one bootstrap secret lives in the environment; everything else sits
+behind it. A consuming application seeds the real value over the empty default
+at seed time — see `create_database.cpp`, which reads
+`HONUWARE_MAIL_APP_PASSWORD` and UPDATEs the row.
+
+**An empty default must fail loud, not fail quietly.** Emptiness is only safe
+because something checks it: `MakeMailHelper(Transaction&, SecretsHelperPtr)`
+throws with an operator-facing message naming the secret and the environment
+variable that seeds it, rather than handing an empty password to the SMTP
+server and surfacing an opaque auth error at send time. Follow that shape for
+any new secret with an empty default, and cover it with a test — see
+`mail_helper_test.cpp` (`FrameworkShipsNoMailPasswordDefault`,
+`MakeMailHelperFailsLoudWhenPasswordMissing`).
+
 ## Adding a New Secret
 
 When adding a new secret, you must update **two files**:

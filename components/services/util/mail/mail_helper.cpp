@@ -2,6 +2,7 @@
 
 #include <list>
 #include <sstream>
+#include <stdexcept>
 
 // mailio includes
 #include <mailio/message.hpp>
@@ -150,6 +151,19 @@ MailHelperPtr MakeMailHelper(Transaction& transaction, Secrets::SecretsHelperPtr
     std::string portStr = secretsHelper->LookupSecret(transaction, Secrets::kMailServerPort);
     unsigned int port = static_cast<unsigned int>(std::stoul(portStr));
     std::string password = secretsHelper->LookupSecret(transaction, Secrets::kMailAppPassword);
+    // Phase 9.2: the framework ships an EMPTY default for mail_app_password so
+    // no live credential sits in this public repo. Fail here, with a message an
+    // operator can act on, rather than handing an empty password to the SMTP
+    // server — mailio would surface that as an opaque authentication failure at
+    // send time, far from the actual cause.
+    if (password.empty()) {
+        throw std::runtime_error(
+            "config_secrets.mail_app_password is empty - cannot send mail. The "
+            "framework ships no default for it (util/secrets/secret_values.cpp). "
+            "Seed it from the HONUWARE_MAIL_APP_PASSWORD environment variable, "
+            "which the application's database_helper reads at seed time "
+            "(--recreate_database), or set the value through the secrets admin.");
+    }
     std::string methodStr = secretsHelper->LookupSecret(transaction, Secrets::kMailServerMethod);
     MailAuthMethod authMethod = ParseMailAuthMethod(methodStr);
     return MakeMailHelper(server, port, password, authMethod);

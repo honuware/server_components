@@ -3,27 +3,100 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#include <stdexcept>
+#include <string>
+
 #include "mail_helper_test_util.h"
+#include "test/src/util/database_test_helper.h"
 #include "util/secrets/secret_keys.h"
 #include "util/secrets/secrets_helper_test_util.h"
+#include "util/types.h"
 
 namespace Mail {
 namespace {
 
-TEST(MailHelperTest, SendMessage) {
-    auto secrets = Secrets::Test::MakeTestSecretsHelper();
+// Phase 9.3: this test used to authenticate to Gmail and send a REAL message on
+// every full-suite run — a ~1.7 s live SMTP round trip that made the unit suite
+// depend on network egress, on a third party's availability, and on a shared
+// credential. It now drives the same composition through the TestMailHelper
+// double and asserts what the live send could only assume: that the message
+// reaches the transport with the right sender, recipient, subject and
+// CRLF-correct body. Genuine sending stays on the test helper's
+// --send_real_email path.
+TEST(MailHelperTest, SendMessageReachesTransportWithComposedContent) {
+    Mail::Test::TestMailHelperPtr mailHelper = Mail::Test::MakeTestMailHelper();
     MailAddress from{ "Knotty Yoga", "knottyyogaandspa@gmail.com" };
     MailAddress to{ "Mason Bendixen", "masonbendixen@hotmail.com" };
     MailMessage message(from, to);
     message.SetSubject("Test Subject");
     message.SetBodyText("This is a test email body.");
-    message.SetBodyHtml("<h1>This is a test email body.</h1><p>The body!</p>");
-    MailHelperPtr mailHelper = MakeMailHelper(
-        secrets->LookupSecretTest(Secrets::kMailServerName),
-        atoi(std::string(secrets->LookupSecretTest(Secrets::kMailServerPort)).c_str()), 
-        secrets->LookupSecretTest(Secrets::kMailAppPassword),
-        ParseMailAuthMethod(secrets->LookupSecretTest(Secrets::kMailServerMethod)));
+    message.SetBodyHtml(NormalizeCrLf(
+        "<h1>This is a test email body.</h1>\n<p>The body!</p>"));
+
     EXPECT_NO_THROW(mailHelper->SendMail(message));
+
+    ASSERT_EQ(mailHelper->GetMessages().size(), 1u);
+    const MailMessage& sent = mailHelper->GetMessages()[0];
+    EXPECT_EQ(sent.GetFrom().address, "knottyyogaandspa@gmail.com");
+    ASSERT_EQ(sent.GetTo().size(), 1u);
+    EXPECT_EQ(sent.GetTo()[0].address, "masonbendixen@hotmail.com");
+    EXPECT_EQ(sent.GetSubject(), "Test Subject");
+    EXPECT_EQ(sent.GetBodyText(), "This is a test email body.");
+
+    // mailio rejects a bare LF, so every newline must reach the transport
+    // CRLF-normalized. Asserting the property rather than a fixed string, so
+    // this keeps holding if the body content changes.
+    const std::string& html = sent.GetBodyHtml();
+    ASSERT_FALSE(html.empty());
+    for (size_t i = 0; i < html.size(); ++i) {
+        if (html[i] != '\n') continue;
+        ASSERT_GT(i, 0u) << "body starts with a bare LF";
+        EXPECT_EQ(html[i - 1], '\r') << "bare LF at offset " << i;
+    }
+}
+
+// Phase 9.2: the framework ships an EMPTY default for mail_app_password so no
+// live credential sits in this public repo. This is the regression guard — it
+// fails the moment someone re-adds a literal for the convenience of making
+// every test send mail with no configuration.
+TEST(MailHelperTest, FrameworkShipsNoMailPasswordDefault) {
+    auto secrets = Secrets::Test::MakeTestSecretsHelper();
+    EXPECT_EQ(secrets->LookupSecretTest(Secrets::kMailAppPassword), "")
+        << "A real credential must never be a compiled-in default — see "
+           "util/secrets/CLAUDE.md";
+}
+
+// ...and the consequence of that empty default: a clean, diagnosable failure
+// rather than handing an empty password to the SMTP server, which mailio would
+// surface as an opaque authentication error far from the actual cause.
+TEST(MailHelperTest, MakeMailHelperFailsLoudWhenPasswordMissing) {
+    auto secrets = Secrets::Test::MakeTestSecretsHelper();
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("MakeMailHelperFailsLoudWhenPasswordMissing",
+        [&](Transaction& transaction) {
+            try {
+                MakeMailHelper(transaction, secrets);
+                FAIL() << "Expected std::runtime_error for an empty password";
+            }
+            catch (const std::runtime_error& e) {
+                const std::string what = e.what();
+                EXPECT_THAT(what, testing::HasSubstr("mail_app_password"));
+                EXPECT_THAT(what,
+                    testing::HasSubstr("HONUWARE_MAIL_APP_PASSWORD"));
+            }
+        });
+}
+
+TEST(MailHelperTest, MakeMailHelperSucceedsWhenPasswordSeeded) {
+    auto secrets = Secrets::Test::MakeTestSecretsHelper();
+    secrets->AddSecretTest(Secrets::kMailAppPassword, "seeded-app-password");
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("MakeMailHelperSucceedsWhenPasswordSeeded",
+        [&](Transaction& transaction) {
+            MailHelperPtr helper;
+            EXPECT_NO_THROW(helper = MakeMailHelper(transaction, secrets));
+            EXPECT_NE(helper, nullptr);
+        });
 }
 
 TEST(MailHelperTest, SendMessageInvalidMethod) {

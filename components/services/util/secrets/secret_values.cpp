@@ -15,7 +15,22 @@ namespace Values {
 // non-brand defaults so util/secrets stays extraction-ready.
 
 // Mail server configuration values (deployment infra, not brand)
-inline constexpr std::string_view kMailAppPasswordValue = "ctojsngxuennlbdz";
+//
+// Phase 9.2 — the app password default is deliberately EMPTY, and must stay
+// that way. Defaults in this file are loaded into the database on first run
+// AND into the test secrets helper automatically (see CLAUDE.md), so putting
+// the real credential here made every test everywhere work with no
+// configuration at all. That convenience is exactly the trap: this is the one
+// file a live secret must never enter, and it is also the most convenient
+// place to put one. This repo is public.
+//
+// The live value is supplied per deployment through HONUWARE_MAIL_APP_PASSWORD,
+// which the consuming application's create_database.cpp reads at seed time and
+// UPDATEs over the row this default seeds. Empty means an unconfigured build
+// cannot send mail — the intended failure, and far better than silently
+// authenticating as the shared account. MakeMailHelper fails loud on it rather
+// than handing an empty password to the SMTP server.
+inline constexpr std::string_view kMailAppPasswordValue = "";
 inline constexpr std::string_view kMailServerNameValue = "smtp.gmail.com";
 // Use 465 for login(SSL), 587 for tls
 inline constexpr std::string_view kMailServerPortValue = "465";
