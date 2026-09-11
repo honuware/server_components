@@ -75,6 +75,11 @@ public:
     // harness carries no dependency on the app's schema composition root.
     const DbSchema::DatabaseInfo& GetDatabaseInfo() const;
 
+    // Pass a BASE name: the platform token is appended here, exactly as it is for
+    // the primary database, so secondary databases are platform-qualified too
+    // ("test_honuware_tenant_b_windows"). Do NOT pre-compose at the call site or
+    // the suffix lands twice.
+    //
     // Tenancy seam (`⇦ tenancy`): create + populate an ADDITIONAL named test
     // database once per run and return a DatabaseHelper bound to it. Idempotent
     // by name — repeat calls return the cached helper without recreating — using

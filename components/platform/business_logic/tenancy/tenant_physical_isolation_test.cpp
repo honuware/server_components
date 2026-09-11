@@ -44,7 +44,10 @@ TEST(TenantPhysicalIsolationTest, ProvidersReachSeparatePhysicalDatabases) {
         nameB = tx.RunSqlStatementReturningOneValue("SELECT current_database()");
     });
     EXPECT_NE(nameA, nameB);
-    EXPECT_EQ(nameB, std::string(kTenantBDatabase));
+    // kTenantBDatabase is the BASE name; EnsureNamedDatabase appends the
+    // compile-time platform token, so the physical database is
+    // "test_honuware_tenant_b_windows" / "_linux" (honuware Phase 10.2).
+    EXPECT_EQ(nameB, ComposeTestDatabaseName(kTenantBDatabase));
 
     // A row inserted through dbA's transaction is invisible on dbB (a separate
     // physical database), while dbA sees its own row. Nested so dbA's insert is

@@ -129,6 +129,32 @@ TEST(GlobalDatabaseTestSupportTest, CompiledPlatformTokenMatchesBuildPlatform) {
               ComposeTestDatabaseName("base", kTestDatabasePlatformToken));
 }
 
+TEST(GlobalDatabaseTestSupportTest, NamedDatabasesArePlatformQualifiedToo) {
+    // Regression guard for a real escape: Phase 10.2 first suffixed only the
+    // PRIMARY database, leaving EnsureNamedDatabase's hardcoded names shared
+    // across platforms. A Linux gate then failed with "database
+    // test_honuware_tenant_b is being accessed by other users" while a Windows
+    // run held it. The suite passed in isolation and failed only under
+    // concurrency, so nothing short of running both platforms would have caught
+    // it -- hence asserting the physical name here, where a single run can.
+    const DbSchema::DatabaseInfo& info =
+        GlobalDatabaseTestSupport::GetInstance().GetDatabaseInfo();
+    DatabaseHelper helper =
+        GlobalDatabaseTestSupport::GetInstance().EnsureNamedDatabase(kNamedDb, info);
+
+    std::string actual;
+    helper.RunInTransaction("named-db-name", [&](Transaction& transaction) {
+        actual =
+            transaction.RunSqlStatementReturningOneValue("SELECT current_database()");
+    });
+    RecordProperty("named_database", actual);
+
+    EXPECT_EQ(actual, ComposeTestDatabaseName(kNamedDb))
+        << "secondary databases must carry the platform token as well";
+    EXPECT_NE(actual, std::string(kNamedDb))
+        << "the bare base name means the suffix was never applied";
+}
+
 TEST(GlobalDatabaseTestSupportTest, ActiveDatabaseIsPlatformQualified) {
     // The end-to-end check: the database this suite is ACTUALLY connected to
     // carries the platform token. PostgreSQL answers from the live connection, so

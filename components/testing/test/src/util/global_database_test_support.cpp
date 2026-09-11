@@ -106,6 +106,17 @@ std::shared_ptr<DatabaseHelperBase> MakeDatabaseHelperTest(std::string_view data
 
 }  // namespace {
 
+// NOTE: `platformToken` looks mandatory here, but it is NOT — the DECLARATION in
+// global_database_test_support.h defaults it to kTestDatabasePlatformToken
+// ("windows" under _WIN32, "linux" otherwise, chosen at compile time). C++ allows
+// a default argument to be specified only once per translation unit, so repeating
+// it here would be a compile error ("redefinition of default argument") — which is
+// why this signature cannot show it.
+//
+// So a caller writing ComposeTestDatabaseName("test_communityfinder") DOES get the
+// platform appended; the same source compiled by MSVC yields
+// "test_communityfinder_windows" and by gcc "test_communityfinder_linux". Reading
+// only this file, nothing reveals that. Hence this comment.
 std::string ComposeTestDatabaseName(
     std::string_view baseName, std::string_view platformToken) {
     std::string name(baseName);
@@ -190,13 +201,28 @@ DatabaseHelper GlobalDatabaseTestSupport::CreateAndPopulateDatabase(
 
 DatabaseHelper GlobalDatabaseTestSupport::EnsureNamedDatabase(
     std::string_view databaseName, const DbSchema::DatabaseInfo& databaseInfo) {
-    std::string key(databaseName);
+    // Phase 10.2 (follow-up): platform-qualify SECONDARY databases too. The first
+    // cut of that phase suffixed only the PRIMARY database, composed at the app
+    // boundary -- these additional ones kept their hardcoded names
+    // ("test_honuware_tenant_b"), so both platforms drove the same physical
+    // database and a Linux gate failed with
+    //     database "test_honuware_tenant_b" is being accessed by other users
+    // while a Windows run held a session on it. Found by the gate, not by review.
+    //
+    // Suffixing HERE rather than at each call site is deliberate. This method owns
+    // the destructive DROP + CREATE, so it should own the naming: a caller that
+    // forgot to compose would reintroduce the same defect, and that defect is
+    // invisible until two platforms happen to run at once -- it passes in
+    // isolation and fails only under concurrency, which is the worst way to find
+    // out. Callers pass a BASE name; the suffix is applied exactly once, here.
+    const std::string qualifiedName = ComposeTestDatabaseName(databaseName);
+    std::string key(qualifiedName);
     auto it = namedDatabases_.find(key);
     if (it != namedDatabases_.end()) {
         return it->second;
     }
     DatabaseHelper databaseHelper =
-        CreateAndPopulateDatabase(databaseName, databaseInfo);
+        CreateAndPopulateDatabase(qualifiedName, databaseInfo);
     namedDatabases_.emplace(key, databaseHelper);
     return databaseHelper;
 }
