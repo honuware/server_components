@@ -103,9 +103,21 @@ cmake --build "$BUILD_DIR" -j"$(nproc)"
 # CWD-relative "certs/cacert.pem". (The fixture-reading tests use __FILE__ and are
 # CWD-independent.)
 #
-# The runner DROPs and CREATEs its own `honuware_test` database, so nothing needs
-# seeding -- but see the concurrency warning in docker/README.md: do not run this
-# at the same time as a Windows honuware_test_runner, since both own that database.
+# The runner DROPs and CREATEs its own test database, so nothing needs seeding.
+#
+# Phase 10.2: that database is now PLATFORM-QUALIFIED -- this Linux gate drives
+# `honuware_test_linux` while a Windows run drives `honuware_test_windows`, from
+# the same base name suffixed at compile time. The two no longer collide, so the
+# old "do not run this at the same time as a Windows honuware_test_runner"
+# warning no longer applies and has been removed.
+#
+# Still true: two Linux gates from two checkouts of THIS repo would collide, since
+# they compile to the same suffix. That trade was accepted deliberately -- see
+# global_database_test_support.h for why the suffix is compile-time rather than an
+# environment variable.
+#
+# The old unsuffixed `honuware_test` database is now orphaned. It is scratch data
+# that gets dropped and recreated anyway, so it can simply be dropped by hand once.
 cd "$BUILD_DIR"
 
 echo "[honuware] running component tests ..."

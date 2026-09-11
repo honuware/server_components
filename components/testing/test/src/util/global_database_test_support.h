@@ -9,7 +9,43 @@
 #include "sql_util/database_access/database_helper.h"
 #include "sql_util/schema/database_info.h"
 
-constexpr std::string_view kTestDatabaseName = "test_knottyyoga";
+// honuware's OWN test database base name. Phase 10.2b: this used to be
+// "test_knottyyoga" — the framework defaulting to one specific application's
+// database, which knottyyoga then depended on by never naming its own. Every app
+// now names its own base name; this default is honuware's and nothing else's.
+constexpr std::string_view kTestDatabaseName = "honuware_test";
+
+// Phase 10.2 — the platform token appended to every test database base name, so
+// a Linux gate and a Windows run of the SAME repo drive different physical
+// databases and can run concurrently against one shared PostgreSQL.
+//
+// Derived at COMPILE time rather than from an environment variable, deliberately:
+// the harness DROPs and CREATEs whatever name it is handed, so an
+// externally-supplied suffix would make an arbitrary string part of a destructive
+// database operation — needing validation, a character allowlist, and a length
+// check against PostgreSQL's 63-byte identifier cap. Compile-time detection
+// cannot be misconfigured and needs none of that.
+//
+// The trade, accepted explicitly: with no override, two Linux gates from two
+// checkouts of the SAME repo still collide. If that ever stops being acceptable
+// the escape hatch is an override — which must then arrive WITH the validation
+// described above, not without it.
+#ifdef _WIN32
+constexpr std::string_view kTestDatabasePlatformToken = "windows";
+#else
+constexpr std::string_view kTestDatabasePlatformToken = "linux";
+#endif
+
+// Compose the physical test database name as "<baseName>_<platformToken>".
+//
+// The token is a PARAMETER (defaulting to the compiled one) only so it can be
+// tested for both platforms from a single build: the #ifdef above makes one
+// branch unreachable per build, so a test asserting only the compiled default
+// would prove nothing about the other platform. Production callers pass the
+// base name alone.
+std::string ComposeTestDatabaseName(
+    std::string_view baseName,
+    std::string_view platformToken = kTestDatabasePlatformToken);
 
 // Reusable database test harness (honuware_testing). It is app-agnostic: the
 // composed schema (framework + app tables) is passed IN by the caller rather

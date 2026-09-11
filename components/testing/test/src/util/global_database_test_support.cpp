@@ -14,9 +14,15 @@ namespace {
 
 // The physical test database name. Resolved once, at Initialize() time, from the
 // injected DatabaseInfo's name — so each consuming repo drives its own database
-// (knottyyoga -> "test_knottyyoga", honuware -> "honuware_test") and their suites
-// can run concurrently against one Postgres instance without colliding on a shared
-// database. Defaults to kTestDatabaseName for any helper built before Initialize.
+// and their suites can run concurrently against one Postgres instance without
+// colliding. Phase 10.2: each app's test main composes its base name with the
+// compile-time platform token (ComposeTestDatabaseName) BEFORE building the
+// DatabaseInfo, so the name reaching here is already platform-qualified
+// ("honuware_test_windows", "test_knottyyoga_linux", ...). Composing at the app
+// boundary rather than here keeps the DatabaseInfo and this active name the same
+// string — DatabaseInfo has no name mutator, so suffixing here would have left
+// GetDatabaseInfo().GetDatabaseName() reporting a database that does not exist.
+// Defaults to kTestDatabaseName for any helper built before Initialize.
 std::string& ActiveTestDatabaseName() {
     static std::string name{kTestDatabaseName};
     return name;
@@ -99,6 +105,16 @@ std::shared_ptr<DatabaseHelperBase> MakeDatabaseHelperTest(std::string_view data
 }
 
 }  // namespace {
+
+std::string ComposeTestDatabaseName(
+    std::string_view baseName, std::string_view platformToken) {
+    std::string name(baseName);
+    if (!platformToken.empty()) {
+        name += '_';
+        name.append(platformToken);
+    }
+    return name;
+}
 
 DatabaseHelper MakeTestDatabaseHelper(std::string_view databaseName) {
     return DatabaseHelper(MakeDatabaseHelperTest(databaseName));

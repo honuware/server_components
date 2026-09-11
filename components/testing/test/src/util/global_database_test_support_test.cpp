@@ -81,4 +81,93 @@ TEST(GlobalDatabaseTestSupportTest, GetDatabaseInfoReturnsInjectedComposedSchema
     EXPECT_TRUE(hasPeople);   // framework table, present in every honuware schema
 }
 
+// --- Phase 10.2: platform-qualified test database names ---------------------
+//
+// The platform token is chosen by #ifdef, so one branch is unreachable in any
+// given build. Asserting only the compiled default would prove nothing about the
+// other platform — which is exactly the half that breaks a Linux gate. So these
+// pass the token explicitly and cover both.
+
+TEST(GlobalDatabaseTestSupportTest, ComposeTestDatabaseNameAppendsPlatformToken) {
+    EXPECT_EQ(ComposeTestDatabaseName("honuware_test", "windows"),
+              "honuware_test_windows");
+    EXPECT_EQ(ComposeTestDatabaseName("honuware_test", "linux"),
+              "honuware_test_linux");
+    // The three real base names, both ways — these are the six databases the
+    // arrangement is meant to produce.
+    EXPECT_EQ(ComposeTestDatabaseName("test_knottyyoga", "linux"),
+              "test_knottyyoga_linux");
+    EXPECT_EQ(ComposeTestDatabaseName("test_communityfinder", "windows"),
+              "test_communityfinder_windows");
+}
+
+TEST(GlobalDatabaseTestSupportTest, ComposeTestDatabaseNamePreservesBaseName) {
+    // The base name must survive untouched — a suffix that mangled it would send
+    // the suite at a different database, and the suite would still pass.
+    const std::string composed =
+        ComposeTestDatabaseName("test_communityfinder", "linux");
+    EXPECT_EQ(composed.rfind("test_communityfinder", 0), 0u)
+        << "composed name must START with the app-supplied base name";
+    EXPECT_EQ(composed, std::string("test_communityfinder") + "_linux");
+}
+
+TEST(GlobalDatabaseTestSupportTest, ComposeTestDatabaseNameEmptyTokenLeavesBaseUnchanged) {
+    // No trailing underscore when there is no token. Not a supported
+    // configuration today, but it is the shape an override would take, and a
+    // stray "name_" would be a silently different database.
+    EXPECT_EQ(ComposeTestDatabaseName("honuware_test", ""), "honuware_test");
+}
+
+TEST(GlobalDatabaseTestSupportTest, CompiledPlatformTokenMatchesBuildPlatform) {
+#ifdef _WIN32
+    EXPECT_EQ(kTestDatabasePlatformToken, "windows");
+#else
+    EXPECT_EQ(kTestDatabasePlatformToken, "linux");
+#endif
+    // Whatever the platform, the default argument must agree with the constant.
+    EXPECT_EQ(ComposeTestDatabaseName("base"),
+              ComposeTestDatabaseName("base", kTestDatabasePlatformToken));
+}
+
+TEST(GlobalDatabaseTestSupportTest, ActiveDatabaseIsPlatformQualified) {
+    // The end-to-end check: the database this suite is ACTUALLY connected to
+    // carries the platform token. PostgreSQL answers from the live connection, so
+    // this cannot pass by agreeing with a constant that was never applied.
+    //
+    // Deliberately does NOT assume the base name. This file compiles into every
+    // consuming app's suite as well as honuware's own, and each app supplies its
+    // own base name — asserting honuware's would fail in knottyyoga and
+    // communityfinder for the wrong reason. The invariant that actually belongs
+    // to the framework is "whatever the base name, the physical database is
+    // platform-qualified and matches the injected schema".
+    const std::string expectedSuffix =
+        "_" + std::string(kTestDatabasePlatformToken);
+
+    DatabaseHelper helper =
+        GlobalDatabaseTestSupport::GetInstance().GetDatabaseHelper();
+    std::string actual;
+    helper.RunInTransaction("active-db-name", [&](Transaction& transaction) {
+        actual =
+            transaction.RunSqlStatementReturningOneValue("SELECT current_database()");
+    });
+
+    // Record the physical name so a run REPORTS which database it touched rather
+    // than only asserting a property of it. Shows up in --gtest_output=xml, which
+    // is what makes "did the Linux gate really use a different database?"
+    // answerable after the fact instead of by inference.
+    RecordProperty("active_database", actual);
+
+    ASSERT_GT(actual.size(), expectedSuffix.size())
+        << "database name '" << actual << "' is not longer than the suffix alone";
+    EXPECT_EQ(actual.substr(actual.size() - expectedSuffix.size()), expectedSuffix)
+        << "the running suite is on '" << actual
+        << "', which is not platform-qualified";
+
+    // ...and the harness's own view agrees with the physical database. They are
+    // composed at the app boundary precisely so they cannot drift apart, since
+    // DatabaseInfo has no name mutator; this asserts they have not.
+    EXPECT_EQ(GlobalDatabaseTestSupport::GetInstance().GetDatabaseInfo().GetDatabaseName(),
+              actual);
+}
+
 }  // namespace

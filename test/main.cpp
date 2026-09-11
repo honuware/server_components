@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string>
 
 #include <gtest/gtest.h>
 
@@ -24,7 +25,12 @@ int main(int argc, char** argv)
     // is the framework analogue of the app's Endpoints::RegisterAllEndpoints().
     Endpoints::RegisterFrameworkEndpoints();
 
-    DbSchema::DatabaseInfo databaseInfo("honuware_test");
+    // Phase 10.2: compose the base name with the compile-time platform token, so
+    // a Linux gate and a Windows run of this repo drive different physical
+    // databases ("honuware_test_linux" / "honuware_test_windows") and can run
+    // concurrently against one shared PostgreSQL.
+    const std::string testDatabaseName = ComposeTestDatabaseName(kTestDatabaseName);
+    DbSchema::DatabaseInfo databaseInfo(testDatabaseName);
     DbSchema::MakeFrameworkTables(databaseInfo);
     // Compose the control-plane `tenants` table into the primary test schema so
     // the tenancy table-helper / resolver tests run against the ordinary harness.
