@@ -14,4 +14,4 @@ message ("Initial extraction from knottyyoga@<SHA>").
 This product bundles no third-party source, but links the following libraries at
 build time, each under its own license (obtained via Conan): Boost, Crow,
 libpqxx, OpenSSL, libsodium, mailio, GoogleTest, Abseil, HowardHinnant/date,
-libcurl, libjpeg, libpng, libtiff, and zlib.
+libcurl, libjpeg, libpng, libzip, and zlib.

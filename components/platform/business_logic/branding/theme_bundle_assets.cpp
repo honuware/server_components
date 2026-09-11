@@ -82,6 +82,15 @@ std::string ExtensionForImageType(std::string_view imageType) {
     if (type == "gif") return "gif";
     if (type == "webp") return "webp";
     if (type == "svg" || type == "svg+xml") return "svg";
+    // DELIBERATELY KEPT after Phase 11 removed TIFF image support. This is
+    // theme-bundle asset EXTENSION MAPPING — it names a stored file and carries no
+    // libtiff dependency and no relationship to ImageResize::IMAGE_TYPE_TIFF,
+    // which no longer exists. Note the list also covers "gif" and "webp", neither
+    // of which ImageResize ever decoded; that is the point — this function maps
+    // MIME types to filenames, not to decoders.
+    //
+    // Removing this to "finish the job" would reject theme bundles that work
+    // today, for no dependency benefit. Decided explicitly (New OQ 13).
     if (type == "tiff" || type == "tif") return "tif";
     return {};
 }

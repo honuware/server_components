@@ -3,7 +3,6 @@
 #include <boost/gil.hpp>
 #include <boost/gil/extension/io/bmp.hpp>
 #include <boost/gil/extension/io/png.hpp>
-#include <boost/gil/extension/io/tiff.hpp>
 #include <boost/gil/extension/io/jpeg.hpp>
 #include <boost/gil/extension/numeric/sampler.hpp>
 #include <boost/gil/extension/numeric/resample.hpp>
@@ -35,9 +34,6 @@ namespace ImageResize {
                 break;
             case IMAGE_TYPE_PNG:
                 boost::gil::read_and_convert_image(device, image, boost::gil::png_tag());
-                break;
-            case IMAGE_TYPE_TIFF:
-                boost::gil::read_and_convert_image(device, image, boost::gil::tiff_tag());
                 break;
             }
         }
@@ -82,9 +78,6 @@ namespace ImageResize {
                 break;
             case IMAGE_TYPE_PNG:
                 boost::gil::write_view(device, view, boost::gil::png_tag());
-                break;
-            case IMAGE_TYPE_TIFF:
-                boost::gil::write_view(device, view, boost::gil::tiff_tag());
                 break;
             }
         }

@@ -55,8 +55,14 @@ add_subdirectory(http)
 
 # Foundation owns the low-level Conan libs its public headers expose: Boost and
 # Crow (json_value.h wraps crow::json), date, and the image codecs used by
-# image_resize (PNG/TIFF/ZLIB; jpeg is pulled in transitively by TIFF — there is
-# no standalone JPEG_LIB in ConanLibImports). CURL is added by util/http.
-target_link_libraries(honuware_foundation PUBLIC ${BOOST_LIB} ${CROW_LIB} ${DATE_LIB} ${PNG_LIB} ${TIFF_LIB} ${ZLIB_LIB})
+# image_resize (PNG/JPEG/ZLIB). CURL is added by util/http.
+#
+# Phase 11.1: ${JPEG_LIB} is EXPLICIT. It used to be absent because libjpeg was
+# reached transitively through libtiff, so JPEG decoding worked without any JPEG
+# edge here. That made removing libtiff (Phase 11) silently break JPEG -- the
+# format actually in use. The explicit edge landed first, verified by building,
+# before ${TIFF_LIB} was removed. Do not "tidy" it away: nothing else pulls
+# libjpeg in.
+target_link_libraries(honuware_foundation PUBLIC ${BOOST_LIB} ${CROW_LIB} ${DATE_LIB} ${PNG_LIB} ${JPEG_LIB} ${ZLIB_LIB})
 
-target_link_libraries(${HONUWARE_TESTS_TARGET} PUBLIC ${BOOST_LIB} ${DATE_LIB} ${PNG_LIB} ${TIFF_LIB} ${GTEST_LIB})
+target_link_libraries(${HONUWARE_TESTS_TARGET} PUBLIC ${BOOST_LIB} ${DATE_LIB} ${PNG_LIB} ${JPEG_LIB} ${GTEST_LIB})

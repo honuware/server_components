@@ -256,6 +256,45 @@ TEST(ImageHelperTest, IsVectorTypeAcceptsEverySpellingAndNothingElse) {
     }
 }
 
+// Phase 11: "tiff" used to map to IMAGE_TYPE_TIFF. It is now an unsupported type
+// and an upload must fail CLEANLY — rejected at validation with a message naming
+// the type, never reaching a decoder that no longer exists.
+//
+// ASSERTED rather than merely deleted. Removing the old expectation would have
+// left nothing pinning the new behaviour, and a future "restore TIFF" could land
+// silently; this is the test that has to be confronted first. Note that resizing
+// a TIFF never actually worked (the output sink cannot seek, so it threw for
+// every input), so nothing that previously succeeded stops working here.
+//
+// Goes through the PUBLIC upload path rather than the private
+// ImageTypeFromString: what matters is the behaviour a caller sees, and testing
+// it this way needs no change to production visibility.
+TEST(ImageHelperTest, UploadPhotoRejectsTiffAsUnsupported) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UploadTiffRejected", [&](Transaction& transaction) {
+        DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
+
+        TableHelpers::PhotoSupportTables photoSupportTables(databaseHelper);
+        photoSupportTables.AddPhotoSupportTable(transaction, "people");
+
+        auto secretsHelper = Secrets::Test::MakeTestSecretsHelper();
+        ImageHelper imageHelper(databaseHelper, secretsHelper);
+
+        // The bytes are a valid JPEG on purpose: the rejection must come from the
+        // declared TYPE, before anything tries to decode. If validation were ever
+        // reordered after the decode, this would stop failing for the right reason.
+        std::vector<char> bytes = MakeTestJpeg(64, 48);
+
+        UploadResult result = imageHelper.UploadAndAssociatePhoto(
+            transaction, "people", 1, bytes, "tiff");
+
+        EXPECT_FALSE(result.success);
+        EXPECT_EQ(result.errorMessage, "Unsupported image type 'tiff'");
+        EXPECT_EQ(result.sourcePhoto.id, 0)
+            << "a rejected upload must not create a source photo row";
+    });
+}
+
 TEST(ImageHelperTest, ImageMimeTypeUsesTheRegisteredSvgType) {
     // "image/" + type would yield "image/svg", under which browsers refuse to
     // render the file. Every raster type happens to agree with concatenation,

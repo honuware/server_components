@@ -6,7 +6,6 @@
 #include <boost/gil.hpp>
 #include <boost/gil/extension/io/jpeg.hpp>
 #include <boost/gil/extension/io/png.hpp>
-#include <boost/gil/extension/io/tiff.hpp>
 #include <boost/gil/extension/numeric/sampler.hpp>
 #include <boost/gil/extension/numeric/resample.hpp>
 #include <boost/iostreams/device/array.hpp>
@@ -262,75 +261,29 @@ namespace ImageResize {
             EXPECT_NO_THROW(ResizeImage(rgbBytes, 8, 8, IMAGE_TYPE_PNG));
         }
 
-        // ---- TIFF ----
+        // ---- TIFF: removed in Phase 11 ----
         //
-        // IMAGE_TYPE_TIFF routes to libtiff through boost::gil's tiff_tag, and
-        // before the VS2026 migration NOTHING exercised it: the enum value, the
-        // ${TIFF_LIB} link edge and both arms of the production switch existed
-        // with no test behind them, while JPEG and PNG were covered thoroughly.
+        // TIFF support is gone, and with it libtiff from all three dependency
+        // graphs -- it was one of the two original VS2026 blockers (its 4.6.0
+        // recipe tool_requires cmake/[>=3.18 <4], and CMake 3.x cannot emit the
+        // "Visual Studio 18 2026" generator).
         //
-        // That mattered because the migration forces libtiff 4.6.0 -> 4.7.2 --
-        // 4.6.0's recipe tool_requires cmake/[>=3.18 <4], and a CMake 3.x cannot
-        // emit the "Visual Studio 18 2026" generator, so 4.6.0 simply cannot build
-        // on VS2026. A decoder change arriving with that bump would otherwise have
-        // been silent. These two mirror the JPEG cases exactly, so a TIFF-specific
-        // regression shows up as a TIFF-only failure.
-
-        // A TIFF fixture CANNOT be built with the VectorSink/back_insert_device
-        // pattern the JPEG and PNG helpers use. A TIFF writer has to seek back and
-        // patch the IFD offset into the header once it knows it, and
-        // back_insert_device is append-only, so boost::gil rejects the device
-        // outright with "no random access: iostream error". std::ostringstream is
-        // seekable, so the fixture goes through one of those. (Reading is fine on
-        // the existing ArraySource -- array devices ARE seekable, which is why
-        // GetImageDimensionsTiff below passes on the production read path.)
-        std::vector<char> TiffToArray(const boost::gil::rgb8_image_t& img) {
-            std::ostringstream out(std::ios_base::out | std::ios_base::binary);
-            boost::gil::write_view(
-                out, boost::gil::const_view(img), boost::gil::tiff_tag());
-            const std::string bytes = out.str();
-            return std::vector<char>(bytes.begin(), bytes.end());
-        }
-
-        // The READ path, which is the half the libtiff bump most directly affects:
-        // decoding a real TIFF through the production entry point.
-        TEST(ImageResizeTest, GetImageDimensionsTiff)
-        {
-            boost::gil::rgb8_image_t img(128, 96);
-            MakeRedGreenImage(img);
-            auto vec = TiffToArray(img);
-            auto dims = GetImageDimensions(vec, IMAGE_TYPE_TIFF);
-            EXPECT_EQ(dims.width, 128);
-            EXPECT_EQ(dims.height, 96);
-        }
-
-        // THIS PINS A PRE-EXISTING DEFECT. It is NOT the behaviour we want.
+        // Two tests lived here and both are deliberately deleted, not ported:
         //
-        // ResizeImage writes its output through VectorSink (back_insert_device),
-        // which is append-only. JPEG and PNG stream strictly forwards and do not
-        // care. A TIFF writer must seek back to patch the IFD offset, so the
-        // IMAGE_TYPE_TIFF branch of WriteView throws "no random access: iostream
-        // error" for EVERY input -- resizing a TIFF has never worked, in any
-        // build, on any platform. Nothing caught it because until now nothing
-        // tested TIFF at all; the enum value, the ${TIFF_LIB} link edge and both
-        // switch arms all existed with no coverage behind them.
+        //   GetImageDimensionsTiff -- exercised the read path.
         //
-        // Deliberately asserted rather than fixed here: the fix changes production
-        // image behaviour and deserves its own commit and review, not a smuggled
-        // ride inside a dependency-version bump.
+        //   ResizeTiffThrowsBecauseTheOutputSinkCannotSeek -- a CHARACTERIZATION
+        //   test written in Phase 3.2 to pin a real pre-existing defect: ResizeImage
+        //   writes through VectorSink (back_insert_device, append-only), while a
+        //   TIFF writer must seek back to patch the IFD offset, so resizing a TIFF
+        //   threw "no random access: iostream error" for EVERY input, on every
+        //   platform, always. It was written to FAIL the day that defect was fixed.
+        //   Deleting the feature is the other way it could legitimately go, and
+        //   this is that -- the defect is resolved by removal rather than repair.
         //
-        // WHEN THAT FIX LANDS, THIS TEST SHOULD FAIL. That is the point of it.
-        // Replace it with the round-trip assertion ResizeImageBasic uses for JPEG.
-        TEST(ImageResizeTest, ResizeTiffThrowsBecauseTheOutputSinkCannotSeek)
-        {
-            boost::gil::rgb8_image_t img(64, 64);
-            MakeRedGreenImage(img);
-            const auto tiffBytes = TiffToArray(img);
-            ASSERT_FALSE(tiffBytes.empty())
-                << "fixture is not a real TIFF -- the helper itself is broken";
-            EXPECT_THROW(
-                ResizeImage(tiffBytes, 32, 32, IMAGE_TYPE_TIFF), std::exception);
-        }
+        // Worth keeping in mind if TIFF is ever reinstated: resizing it never
+        // worked, so "restore TIFF" means writing the seekable-sink fix too, not
+        // just putting the enum value back.
 
     } // namespace {
 }  // namespace ImageResize

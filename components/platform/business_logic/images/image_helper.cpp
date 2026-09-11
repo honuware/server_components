@@ -57,9 +57,11 @@ int ImageHelper::ImageTypeFromString(std::string_view type) {
         return ImageResize::IMAGE_TYPE_PNG;
     } else if (type == "bmp") {
         return ImageResize::IMAGE_TYPE_BMP;
-    } else if (type == "tiff") {
-        return ImageResize::IMAGE_TYPE_TIFF;
     }
+    // Phase 11: "tiff" removed. It now falls through to -1 and is rejected as an
+    // unsupported type, the same as any other unknown string. TIFF resizing never
+    // actually worked (the output sink cannot seek, so it threw for every input),
+    // so nothing that previously succeeded stops working.
     // NOTE: "svg" is deliberately absent — there is no raster enum for it and
     // it must never reach ImageResize. See IsVectorType.
     return -1;

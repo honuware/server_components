@@ -64,7 +64,13 @@ libraries = [
     # 7.86.0 -> 8.21.0 looks like a major break and is not: curl kept its API
     # across the 8 boundary, and CURL::libcurl is unchanged.
     Library("libcurl", "8.21.0", CMakeInfo("CURL", "CURL::libcurl")),
-    Library("libjpeg", "9f"),
+    # Phase 11.1: libjpeg gained a CMakeInfo so ${JPEG_LIB} exists. It was always a
+    # direct requirement, but with no CMake variable image_resize reached libjpeg
+    # only TRANSITIVELY through libtiff. Removing libtiff without this would have
+    # broken JPEG -- the format that is actually used -- so the explicit edge lands
+    # first, and all three recipes must carry it: in consumed mode ${JPEG_LIB} is
+    # resolved from the APP's ConanLibImports.cmake, not honuware's.
+    Library("libjpeg", "9f", CMakeInfo("JPEG", "JPEG::JPEG")),
     Library("libpng", "1.6.58", CMakeInfo("PNG", "PNG::PNG")),
     Library("libpqxx", "7.10.5", CMakeInfo("libpqxx", "libpqxx::pqxx", "PQXX_LIB")),
     # DO NOT go back below 1.0.21. libsodium builds through a checked-in MSBuild
@@ -78,11 +84,6 @@ libraries = [
     # 1.0.21+ add "194": "vs2022" and "195": "vs2026". Invisible on a 194 box
     # because a prebuilt binary exists there and the MSBuild path never runs.
     Library("libsodium", "1.0.22", CMakeInfo("libsodium", "libsodium::libsodium")),
-    # DO NOT go back below 4.7.x. The 4.6.0 recipe tool_requires cmake/[>=3.18 <4],
-    # which forces Conan to fetch a CMake 3.x -- and CMake 3.x cannot emit the
-    # "Visual Studio 18 2026" generator, so 4.6.0 makes the whole graph unbuildable
-    # on VS2026. One of the two hard VS2026 blockers (abseil is the other).
-    Library("libtiff", "4.7.2", CMakeInfo("TIFF", "TIFF::TIFF")),
     # Tenant Theming Phase 9 — theme bundles travel as a .zip through the admin
     # page. Deliberately not hand-rolled: the READER parses untrusted input,
     # which is the wrong place to save a dependency.
