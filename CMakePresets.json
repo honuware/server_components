@@ -22,7 +22,8 @@
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "CMAKE_PROJECT_TOP_LEVEL_INCLUDES": "conan_provider.cmake"
+        "CMAKE_PROJECT_TOP_LEVEL_INCLUDES": "conan_provider.cmake",
+        "CONAN_INSTALL_ARGS": "--build=missing;--lockfile=${sourceDir}/conan.lock"
       },
       "condition": {
         "type": "equals",

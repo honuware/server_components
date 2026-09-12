@@ -99,9 +99,18 @@ jobs:
       CONAN_HOME: /root/.conan2
 
       # Floor for the "did the suite actually link?" assertion in the test step.
-      # ~1308 TEST()s exist across 114 component files today; this only trips on a
-      # catastrophic drop, not on normal test churn. See that step for why it exists.
-      MIN_EXPECTED_TESTS: "1000"
+      # Only trips on a catastrophic drop, not on normal test churn.
+      #
+      # THIS FLOOR TRACKS THE COUNT AND MUST BE RAISED AS THE SUITE GROWS
+      # (Phase 12.1). It exists to catch a suite that silently stops running --
+      # the endpoint-anchor dead-strip found in 6.2 linked fine and ran a
+      # FRACTION of the tests. Left at 1000 against an actual 1772, it could no
+      # longer detect 43% of the suite vanishing, which is most of what it was
+      # for. The stale "~1308 TEST()s across 114 files" note it replaced is
+      # itself the evidence: written once, never revisited.
+      #
+      # Actual count 2026-09-11: 1772 (Windows and Linux agree).
+      MIN_EXPECTED_TESTS: "1700"
 
     steps:
       - uses: actions/checkout@v4
@@ -115,10 +124,30 @@ jobs:
           set -euo pipefail
           apt-get update -qq
           apt-get install -y -qq --no-install-recommends \
-              cmake \
+              curl \
+              ca-certificates \
               git \
               python3-pip \
               libkrb5-dev
+
+          # CMake from the OFFICIAL BINARY TARBALL, pinned by version AND
+          # SHA-256 (Phase 12.2). bookworm apt ships 3.25 — below the 3.30 floor
+          # where CMP0167 exists, so `if(POLICY CMP0167)` was always FALSE here
+          # and Linux silently used FindBoost module mode while Windows used
+          # config mode. This must stay in lockstep with the four Dockerfiles;
+          # a partial raise means several CMake versions across the gates.
+          CMAKE_VERSION=4.4.3
+          CMAKE_SHA256=d6c83076c575bc00b823522ac974bda66d0af05d6ddc30e739c12385cf32c6cc
+          curl -fsSL -o /tmp/cmake.tar.gz \
+              "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz"
+          echo "${CMAKE_SHA256}  /tmp/cmake.tar.gz" | sha256sum -c -
+          mkdir -p /opt/cmake
+          tar -xzf /tmp/cmake.tar.gz -C /opt/cmake --strip-components=1
+          rm /tmp/cmake.tar.gz
+          ln -sf /opt/cmake/bin/cmake /usr/local/bin/cmake
+          ln -sf /opt/cmake/bin/ctest /usr/local/bin/ctest
+          ln -sf /opt/cmake/bin/cpack /usr/local/bin/cpack
+
           cmake --version
 
       - name: Install Conan 2.x
@@ -156,8 +185,15 @@ jobs:
         # folder). The top-level CMakeLists include()s it from there.
         run: |
           set -euo pipefail
+          # --lockfile is what makes conan.lock load-bearing (Phase 12.3). A
+          # lockfile that is merely committed does NOTHING; without this flag
+          # Conan re-resolves, which is exactly what the lockfile exists to stop.
+          # Identical conanfiles previously resolved libpq 15.5 on one machine and
+          # 17.11 on another — different Postgres client majors, built through
+          # different build systems (MSBuild vs Meson, 6.2b).
           conan install . \
               --output-folder=build \
+              --lockfile=conan.lock \
               --build=missing \
               -s build_type=Release \
               -s compiler.cppstd=17 \

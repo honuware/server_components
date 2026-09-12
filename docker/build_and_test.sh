@@ -14,7 +14,16 @@
 # Overridable:
 #   SRC_DIR             source tree            (default /src)
 #   BUILD_DIR           build tree             (default /build)
-#   MIN_EXPECTED_TESTS  floor for the count assertion (default 1000)
+#   MIN_EXPECTED_TESTS  floor for the count assertion (default 1700)
+#
+# THE FLOOR TRACKS THE COUNT AND MUST BE RAISED AS THE SUITE GROWS (Phase 12.1).
+# It exists to catch a suite that silently stops running -- the endpoint-anchor
+# dead-strip found in 6.2 linked fine and ran a FRACTION of the tests. A floor
+# left at its original value stops being able to detect that: 1000 against an
+# actual 1772 would have let 43% of the suite vanish unnoticed. All three repos
+# had this same defect, each set once and never revisited.
+#
+# Actual count 2026-09-11: 1772 (Windows and Linux agree).
 
 set -euo pipefail
 
@@ -34,7 +43,7 @@ esac
 
 SRC_DIR=${SRC_DIR:-/src}
 BUILD_DIR=${BUILD_DIR:-/build}
-MIN_EXPECTED_TESTS=${MIN_EXPECTED_TESTS:-1000}
+MIN_EXPECTED_TESTS=${MIN_EXPECTED_TESTS:-1700}
 
 echo "[honuware] source : $SRC_DIR"
 echo "[honuware] build  : $BUILD_DIR"
@@ -61,8 +70,20 @@ echo "[honuware] build  : $BUILD_DIR"
 # `include` that points at the Linux /build path. Verified: without this flag the
 # file appears in the mounted tree; with it, it does not.
 echo "[honuware] conan install ..."
+# --lockfile is what makes conan.lock load-bearing (Phase 12.3). A lockfile that
+# is merely committed does NOTHING -- the same trap as the committed Windows
+# profile in Phase 2, which had no effect until it was named in
+# CONAN_HOST_PROFILE. Without this flag Conan re-resolves, and the whole point is
+# that it must not: identical conanfiles previously resolved libpq 15.5 on one
+# machine and 17.11 on another, and those build through entirely different build
+# systems (MSBuild vs Meson -- 6.2b).
+#
+# ONE lockfile covers BOTH platforms: verified 2026-09-11, Windows and Linux
+# resolve an identical version for every package, so a per-platform lockfile
+# would be two copies of the same answer.
 conan install "$SRC_DIR" \
     --output-folder="$BUILD_DIR" \
+    --lockfile="$SRC_DIR/conan.lock" \
     --build=missing \
     -s build_type=Release \
     -s compiler.cppstd=17 \
