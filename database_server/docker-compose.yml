@@ -1,0 +1,66 @@
+# The shared development PostgreSQL server.
+#
+# ONE container serves every repo that consumes honuware. knottyyoga,
+# communityfinder and server_components' own test suites all connect to this
+# instance and keep their data in separate DATABASES on it, not separate servers.
+# See README.md in this directory for the database inventory.
+#
+# This file moved here from knottyyoga/database_server/ (migration plan Phase
+# 14.2): all three repos depend on it, so it does not belong inside one of them.
+#
+# Two deliberate differences from the knottyyoga original:
+#
+#   1. No `schema.sql` mount. The original bind-mounted an app bootstrap script
+#      into /docker-entrypoint-initdb.d/, which the stock image runs ONLY when
+#      the data directory is empty. It created a `knottyyoga` database and a
+#      6-row `classes` table -- both of which `--recreate_database` drops and
+#      rebuilds from the schema defined in code. knottyyoga's own CLAUDE.md has
+#      called it "a bootstrap file that is no longer used" for some time; a
+#      shared container must not carry one app's tables anyway. The script stays
+#      in knottyyoga as history.
+#
+#   2. The data directory is a variable (see POSTGRES DATA below).
+#
+# `version:` is intentionally absent -- Compose v2 treats the top-level version
+# key as obsolete and warns about it.
+
+services:
+  postgresql:
+    image: postgres:13.1
+    container_name: knotty-postgres-docker
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=docker
+      - POSTGRES_PASSWORD=docker
+      # POSTGRES_DB is deliberately UNSET. The stock image then creates a
+      # bootstrap database named after the user, i.e. `docker` -- which is what
+      # the framework connects to in order to issue DROP/CREATE DATABASE for the
+      # per-suite test databases. Setting POSTGRES_DB removes that database and
+      # the test harness loses its connection point.
+    volumes:
+      - ./postgres.conf:/etc/postgresql/postgresql.conf
+      # POSTGRES DATA. Defaults to ./data beside this file (gitignored). Override
+      # with HONUWARE_POSTGRES_DATA to keep an existing cluster in place -- on a
+      # machine that ran this container from knottyyoga, point it at that repo's
+      # database_server/data rather than moving 286 MB of live cluster:
+      #
+      #   set HONUWARE_POSTGRES_DATA=C:\...\knottyyoga\database_server\data
+      #
+      # A path change here is NOT a migration: PostgreSQL initialises a fresh
+      # empty cluster at whatever path it is given, and the old databases simply
+      # are not there. Move the directory with the container stopped if you want
+      # to relocate it.
+      - ${HONUWARE_POSTGRES_DATA:-./data}:/var/lib/postgresql/data
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    restart: always
+
+networks:
+  # `knotty-net` is created out-of-band by create_network.cmd and shared with the
+  # build containers of all three repos, so it is external rather than owned by
+  # this compose project. The service's alias on it is `postgresql`, which is
+  # exactly the framework's default Linux database host -- a client that joins
+  # knotty-net needs no connection configuration at all.
+  default:
+    name: knotty-net
+    external: true

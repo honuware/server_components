@@ -1,0 +1,3 @@
+# The PostgreSQL cluster itself -- machine state, hundreds of megabytes, and
+# recreatable with <app>_database_helper --recreate_database. Never commit it.
+/data/

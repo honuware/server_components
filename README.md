@@ -41,6 +41,228 @@ and the app composition roots (`main.cpp`, database bootstrap, endpoint
 registration). Those live in the consuming application. If the standalone build
 here ever needs an application header, a boundary has been broken.
 
+## Developer machine setup
+
+From a bare Windows machine to a green build. Every step here has been walked
+end to end; where a step exists only because something bit us, the reason is
+stated rather than left as folklore.
+
+### 1. Prerequisites
+
+| tool | version | notes |
+|---|---|---|
+| Git for Windows | any current | **Re-check after a Visual Studio reinstall** — see *Known setup failures* |
+| CMake | **4.4.3** | <https://cmake.org/download/> — install the exact version, not "latest" |
+| Conan | **2.31.2** | <https://conan.io/downloads> — 2.x is required; the 1.x index is missing recipes used here |
+| Python | 3.13 | `winget install Python.Python.3.13 --scope machine` from an **elevated** prompt |
+| Visual Studio 2026 | Community or higher | with the **Desktop development with C++** workload |
+| Docker Desktop | any current | needs virtualization enabled in BIOS *and* as a Windows optional feature |
+
+**Python is not optional, and it is not obvious why.** Nothing in this repo is
+written in Python. It is required because `libpq` builds with **Meson**, which is
+a Python application — so a missing or broken Python breaks a C++ dependency with
+an error that never mentions Python. Install it machine-scoped from an elevated
+prompt as shown, **not** from the Microsoft Store: the Store installs an "app
+execution alias" stub at `python.exe` that exits silently, which Meson then fails
+on in a way that points nowhere near the cause.
+
+> Version pins above are deliberate. If you change one, change it here too —
+> a document that names a version but links to a download landing page serving
+> "whatever is current" drifts silently and is worse than one that says nothing.
+
+### 2. Clone
+
+```
+cd C:\Users\%USERNAME%\source\repos
+git clone https://github.com/honuware/server_components.git
+```
+
+The consuming applications are separate repositories and pull honuware in via
+FetchContent at a pinned SHA — you do **not** need them to build or test this one.
+
+### 3. Configure Visual Studio
+
+**Tools → Options → CMake → "Prefer using CMake Presets…" → *use CMake Presets if
+available*.**
+
+This is a setup step, not troubleshooting. Setting it explicitly makes the machine
+deterministic instead of dependent on which files happen to exist in the tree when
+VS opens. These repos are driven by `CMakePresets.json`; the old `CMakeSettings.json`
+is gone from all three, so the opposite setting (*Never*) leaves VS with no
+configuration at all — it stops invoking CMake and *Delete Cache and Reconfigure*
+greys out, which reads like a preset bug rather than a settings one.
+
+**Open the folder containing `CMakeLists.txt`** — for this repo, the repo root. In
+the application repos it is `server\<app>_server`, **not** the repo root, and the
+Angular front end is opened as a separate instance. Both apps briefly had two
+candidate workspaces; opening the wrong one gives you a second `.vs` folder whose
+launch entries silently do not work in the other.
+
+### 4. First configure and build
+
+Open the folder in Visual Studio and let CMake generation finish, or from a
+developer prompt:
+
+```
+cmake --preset x64-Debug
+cmake --build --preset x64-Debug
+```
+
+Conan runs automatically during configure (`CMAKE_PROJECT_TOP_LEVEL_INCLUDES`
+points at `conan_provider.cmake`) and resolves against the committed `conan.lock`.
+The first build compiles every dependency from source and takes a long time;
+later builds reuse the Conan cache.
+
+### 5. Generate the debug launch configuration
+
+**A fresh clone has no `.vs` folder, and the Visual Studio command that would
+normally create one is broken in VS 2026** (it writes the file but never opens it;
+*Targets View → Add Debug Configuration* does nothing at all). So generate it:
+
+```
+.\tools\sync_launch_targets.ps1 -RepoPath .
+copy tools\launch_defaults.example.json tools\launch_defaults.local.json
+```
+
+Then edit `launch_defaults.local.json` with your local values. It is gitignored
+because it holds credentials. Without this step every debug target launches bare —
+no database environment, no `--recreate_database`, no `HONUWARE_ALLOW_DESTRUCTIVE` —
+and the failures look like application bugs rather than missing configuration.
+
+### 6. Docker, the network, and PostgreSQL
+
+Confirm Docker works (`docker --version`), then create the shared bridge network
+every container and suite uses:
+
+```
+cd database_server
+create_network.cmd
+```
+
+Each container is otherwise on its own private network; `knotty-net` is what lets
+the build containers reach PostgreSQL. Then start the database:
+
+```
+load_container.cmd
+```
+
+That runs a stock `postgres:13.1` image via `docker-compose.yml` as container
+`knotty-postgres-docker`, publishing **5432:5432**, with user and password both
+`docker`. `load_container_interactive.cmd` runs it in the foreground instead,
+which is usually what you want while developing. `postgres_shell.cmd [database]`
+opens a psql shell in the running container.
+
+**One container serves all three repos** — knottyyoga, communityfinder and this
+one keep their data in separate *databases* on this single server. It lives here
+rather than in an application because all three depend on it; the apps carry
+pointer READMEs. See `database_server/README.md` for the database inventory and
+for where the cluster is stored on disk.
+
+### 7. Create and seed the dev database
+
+**This step is easy to miss and nothing else tells you it was missed** — the test
+suites create their own databases and pass perfectly while the dev database does
+not exist.
+
+From the application repo (this framework repo has no dev database of its own):
+
+```
+set HONUWARE_ALLOW_DESTRUCTIVE=1
+set HONUWARE_MAIL_APP_PASSWORD=<gmail app password>          & rem communityfinder
+set SCHEDULER_SERVICE_ACCOUNT_PASSWORD=<password>            & rem knottyyoga
+out\build\x64-Debug\src\database_helper\<app>_database_helper.exe --recreate_database
+```
+
+`HONUWARE_ALLOW_DESTRUCTIVE` must be exactly `"1"` — anything else, `"true"`
+included, refuses the operation. The two password variables are read **at seed
+time**: without the mail password communityfinder leaves the `config_secrets` row
+empty, and without the scheduler password knottyyoga's seed **throws**.
+
+Pressing F5 on the `database_helper` debug target does the same thing, because
+step 5 puts both the flag and the variables on that target. The command line is
+written out anyway: the F5 route only works once the launch configuration exists,
+and it hides what is actually being run.
+
+### 8. Know which database you are looking at
+
+Each application has **two** databases and creating one does not create the other:
+
+| database | driven by | created by |
+|---|---|---|
+| `<app>` | the server and the helpers | `--recreate_database`, step 7 |
+| `test_<app>_windows` / `test_<app>_linux` | the test suites | dropped and recreated automatically at suite startup |
+
+Test databases are platform-qualified so a Windows run and a Linux gate can run
+concurrently. **A green suite says nothing about the dev database** — thousands of
+passing tests are entirely compatible with step 7 never having been run.
+
+### 9. Run the tests
+
+Windows, from the build directory (the real HTTP client resolves its CA bundle at
+the working-directory-relative `certs/cacert.pem`, which the build copies there):
+
+```
+cd out\build\x64-Debug
+honuware_test_runner.exe
+```
+
+Linux, in the container gate:
+
+```
+docker\build_container.cmd
+docker\load_container.cmd knotty-net
+./docker/build_and_test.sh
+```
+
+Both platforms are gates, and neither substitutes for the other. Linux catches
+what Windows cannot — CMP0167 policy behaviour, `find_package` case sensitivity,
+libpq's `dbname=` handling, `-O2` dead-stripping of endpoint anchors. Windows
+catches what Linux cannot — `winnt.h` macro collisions, `_putenv_s` removing a
+variable when set to empty, and dangling references MSVC happens to tolerate.
+
+### Known setup failures
+
+Four machine-level problems cost real time during the VS2026 migration. None is
+discoverable from its error message, and a new machine will hit them identically.
+
+**The Store-alias `python.exe` stub.** Installing Python from the Microsoft Store
+(or leaving the default App Execution Alias enabled) leaves a `python.exe` that
+exits silently. Meson then fails while building `libpq`, and the error mentions
+neither Python nor the alias. Install machine-scoped via `winget` as in step 1,
+and disable the aliases under *Settings → Apps → App execution aliases*.
+
+**Git for Windows missing after a Visual Studio reinstall.** CMake configure pulls
+honuware via FetchContent and needs `git` on `PATH`. A VS reinstall can leave a
+`git` that works inside the IDE but not in a plain developer prompt. Check with
+`git --version` from the same shell you build in.
+
+**Building from a plain shell instead of a developer prompt.** `cmake --build`
+succeeds at configure and then fails compiling *every* file with
+
+```
+fatal error C1083: Cannot open include file: 'algorithm': No such file or directory
+```
+
+— `string_view`, `sstream`, and the rest of the C++ standard library too. Nothing
+is wrong with the code or the toolchain: Ninja invokes `cl.exe` directly, and
+`cl.exe` finds the standard headers through the `INCLUDE` environment variable,
+which only a developer prompt sets. The error names a standard header, so it reads
+like a broken compiler installation rather than a missing environment. Build from
+the *Developer Command Prompt / Developer PowerShell for VS 2026*, or prefix the
+build in a plain shell. From PowerShell, the outer single quotes stop PowerShell
+consuming the inner ones, which `cmd` needs around the space in *Program Files*:
+
+```
+cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && cmake --build --preset x64-Debug'
+```
+
+Building from inside Visual Studio never hits this — the IDE supplies the
+environment — which is what makes it surprising the first time a build is scripted.
+
+**The unseeded dev database.** See steps 7 and 8. This is the one that looks like
+an application bug: the server starts, the suites pass, and every request touching
+data fails.
+
 ## Build & test
 
 Prerequisites: a C++20 compiler (MSVC 2019+ on Windows, GCC on Linux),
