@@ -124,10 +124,15 @@ normally create one is broken in VS 2026** (it writes the file but never opens i
 copy tools\launch_defaults.example.json tools\launch_defaults.local.json
 ```
 
-Then edit `launch_defaults.local.json` with your local values. It is gitignored
-because it holds credentials. Without this step every debug target launches bare —
-no database environment, no `--recreate_database`, no `HONUWARE_ALLOW_DESTRUCTIVE` —
-and the failures look like application bugs rather than missing configuration.
+Then edit `launch_defaults.local.json` with your local values and re-run the
+script (it stamps the file's `args`/`env` onto every generated entry). It is
+gitignored because it holds credentials — the database login, and the two
+**seed-time passwords** step 7 explains: `HONUWARE_MAIL_APP_PASSWORD` (a Gmail
+app password, database-helper target only) and `SCHEDULER_SERVICE_ACCOUNT_PASSWORD`
+(the example already carries a dev value in `all`). Without this step every
+debug target launches bare — no database environment, no `--recreate_database`,
+no `HONUWARE_ALLOW_DESTRUCTIVE` — and the failures look like application bugs
+rather than missing configuration.
 
 ### 6. Docker, the network, and PostgreSQL
 
@@ -168,20 +173,53 @@ From the application repo (this framework repo has no dev database of its own):
 
 ```
 set HONUWARE_ALLOW_DESTRUCTIVE=1
-set HONUWARE_MAIL_APP_PASSWORD=<gmail app password>          & rem communityfinder
-set SCHEDULER_SERVICE_ACCOUNT_PASSWORD=<password>            & rem knottyyoga
+set HONUWARE_MAIL_APP_PASSWORD=<gmail app password>
+set SCHEDULER_SERVICE_ACCOUNT_PASSWORD=<any non-empty value for dev>
 out\build\x64-Debug\src\database_helper\<app>_database_helper.exe --recreate_database
 ```
 
 `HONUWARE_ALLOW_DESTRUCTIVE` must be exactly `"1"` — anything else, `"true"`
 included, refuses the operation. The two password variables are read **at seed
-time**: without the mail password communityfinder leaves the `config_secrets` row
-empty, and without the scheduler password knottyyoga's seed **throws**.
+time**, by both applications, and they fail differently:
+
+- Without `SCHEDULER_SERVICE_ACCOUNT_PASSWORD` the seed **throws** and tells you so.
+- Without `HONUWARE_MAIL_APP_PASSWORD` the seed **completes silently** with an
+  empty `config_secrets.mail_app_password` row. Nothing complains until the
+  server first tries to send mail — a registration verification, a booking
+  confirmation — and then it refuses with
+  `config_secrets.mail_app_password is empty - cannot send mail`. If you see that
+  message, this is the step that was skipped.
 
 Pressing F5 on the `database_helper` debug target does the same thing, because
 step 5 puts both the flag and the variables on that target. The command line is
 written out anyway: the F5 route only works once the launch configuration exists,
 and it hides what is actually being run.
+
+#### Getting a Gmail app password
+
+The framework ships **no** mail password (it is a credential, and this is a public
+repo — see `components/services/util/secrets/CLAUDE.md` for the incident that
+rule comes from). Each developer supplies one:
+
+1. The password must belong to the **sender mailbox** — whatever the app's
+   `kMailSenderAddress` is (`knottyyogaandspa@gmail.com` for both apps today).
+   mailio logs in to SMTP using the sender address as the username, so a
+   password for any other account fails as `Mail sender rejection`, which reads
+   like an address problem rather than a credential one.
+2. Signed in to that Google account, with 2-Step Verification on, go to
+   https://myaccount.google.com/apppasswords and create one. Name it so it can
+   be revoked on its own later (`knottyyoga-dev-<machine>`).
+3. Google shows it as four groups — `xxxx xxxx xxxx xxxx`. The spaces are
+   display only; the credential is the 16 characters. Strip them.
+4. Put it in `launch_defaults.local.json` on the database-helper target (the only
+   process that reads it), re-run `sync_launch_targets.ps1`, and re-run
+   `--recreate_database`. Keep it out of anything committed and out of plain
+   text files under `Documents`; a password manager is the right home.
+
+Only `--recreate_database` and `--create_tenant` read the variable. `--migrate`
+never touches `config_secrets`, so on an **existing** database the value is set
+through the application's own tooling instead (knottyyoga:
+`knottyyoga_test_helper --command=set_secret --key=mail_app_password --value=…`).
 
 ### 8. Know which database you are looking at
 
@@ -360,7 +398,7 @@ need none of these — the defaults already resolve to the shared docker Postgre
 |---|---|
 | `HONUWARE_ALLOW_DESTRUCTIVE` | must be **exactly `"1"`** — anything else, including `"true"` or `"yes"`, blocks. Gates `--recreate_database`, which refuses rather than self-healing without it |
 | `HONUWARE_SECRET_KEY` | at-rest key for `config_secrets`; non-prod falls back to a fixed dev key, so it is optional locally and **mandatory in production** |
-| `HONUWARE_MAIL_APP_PASSWORD` | read **at seed time** by the app's `create_database.cpp`, which UPDATEs the `config_secrets` row. Not needed at runtime once seeded |
+| `HONUWARE_MAIL_APP_PASSWORD` | a **Gmail app password for the sender mailbox**, read **at seed time** (`--recreate_database` / `--create_tenant`, never `--migrate`) by the app's `create_database.cpp`, which UPDATEs the `config_secrets` row. Not needed at runtime once seeded. Unset ⇒ the seed succeeds with an empty row and the server later refuses with `config_secrets.mail_app_password is empty - cannot send mail`. How to get one: setup step 7 |
 | `SCHEDULER_SERVICE_ACCOUNT_PASSWORD` | the scheduler service account. Seeding **throws** if unset; the scheduler also falls back to it when `--service_account_password` is empty |
 | `PORT` | server listen port — defaults differ per application, so check the app's `main.cpp` |
 
@@ -418,8 +456,11 @@ fill in your values. The script stamps them onto every generated entry: `all`
 applies to all targets, and `targets` keys match the `projectTarget` label
 exactly or as a wildcard, so `"*tests.exe*"` catches the nested
 `name.exe (test\name.exe)` form without retyping it. This is the practical place
-to put the `HONUWARE_DB_*` variables above and a `--gtest_filter` for the test
-executable. Use `--gtest_filter=*` as the standing value — that runs everything,
+to put the `HONUWARE_DB_*` variables above, `SCHEDULER_SERVICE_ACCOUNT_PASSWORD`
+(in `all`, so the database helper and the scheduler helper cannot disagree),
+`HONUWARE_MAIL_APP_PASSWORD` (on the `*database_helper.exe*` target only — it is
+a real credential, and only the seed reads it), and a `--gtest_filter` for the
+test executable. Use `--gtest_filter=*` as the standing value — that runs everything,
 and it is the pattern you narrow to something like `--gtest_filter=Foo.*` while
 chasing a failure. An *empty* `--gtest_filter=` runs no tests at all.
 

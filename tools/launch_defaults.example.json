@@ -9,13 +9,16 @@
 
   "_not_env_vars": "HONUWARE_API_BASE, HONUWARE_CRUD_ACCESS and HONUWARE_MOCK_OPTIONS are Angular DI tokens configured via environment.ts - setting them here does nothing. HONUWARE_SRC_DIR is container-side only; the Windows equivalent is the CMake cache variable FETCHCONTENT_SOURCE_DIR_HONUWARE.",
 
+  "_comment_scheduler_password": "SCHEDULER_SERVICE_ACCOUNT_PASSWORD sits in 'all' rather than on one target because TWO processes read it and must agree: the database helper hashes it into the scheduler service-account row at seed time, and the scheduler helper logs in with it. Any non-empty value works locally; the seed throws if it is unset. Dev-only - production injects it from the server environment file.",
+
   "all": {
     "env": {
       "HONUWARE_DB_HOST": "localhost",
       "HONUWARE_DB_PORT": "5432",
       "HONUWARE_DB_USER": "docker",
       "HONUWARE_DB_PASSWORD": "docker",
-      "HONUWARE_DB_SSLMODE": "disable"
+      "HONUWARE_DB_SSLMODE": "disable",
+      "SCHEDULER_SERVICE_ACCOUNT_PASSWORD": "dev-scheduler-password"
     }
   },
 
