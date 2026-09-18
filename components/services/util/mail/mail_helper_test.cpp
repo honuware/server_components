@@ -99,6 +99,72 @@ TEST(MailHelperTest, MakeMailHelperSucceedsWhenPasswordSeeded) {
         });
 }
 
+// ---- The SMTP AUTH username (Deploying to AWS 4.7 — Amazon SES) ------------
+//
+// The helper always logged in as the SENDER ADDRESS, which is how Gmail works
+// and how every deployment ran. Amazon SES issues an IAM-derived AKIA... SMTP
+// username that is nothing like an address, so a deployment on SES needs a
+// separate value. Asserted through the reader the transport uses
+// (SmtpUsernameFor), built by the production MakeMailHelper from the secrets.
+
+TEST(MailHelperTest, ResolveSmtpUsernameFallsBackToTheSenderAddress) {
+    EXPECT_EQ(ResolveSmtpUsername("", "studio@example.com"), "studio@example.com");
+}
+
+TEST(MailHelperTest, ResolveSmtpUsernameUsesTheConfiguredValue) {
+    EXPECT_EQ(
+        ResolveSmtpUsername("AKIAEXAMPLESMTPUSER", "studio@example.com"),
+        "AKIAEXAMPLESMTPUSER");
+}
+
+// The framework default is empty on purpose: empty is "log in as the sender",
+// which is exactly what a database with no row for the key reads too
+// (LookupSecret returns "" for a missing row). Both mean an existing Gmail
+// deployment is unchanged by the key's arrival.
+TEST(MailHelperTest, FrameworkDefaultsToLoggingInAsTheSender) {
+    auto secrets = Secrets::Test::MakeTestSecretsHelper();
+    EXPECT_EQ(secrets->LookupSecretTest(Secrets::kMailSmtpUsername), "");
+}
+
+TEST(MailHelperTest, MakeMailHelperLogsInAsTheSenderWhenNoUsernameIsConfigured) {
+    auto secrets = Secrets::Test::MakeTestSecretsHelper();
+    secrets->AddSecretTest(Secrets::kMailAppPassword, "seeded-app-password");
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("MakeMailHelperLogsInAsTheSender",
+        [&](Transaction& transaction) {
+            MailHelperPtr helper = MakeMailHelper(transaction, secrets);
+            EXPECT_EQ(
+                helper->SmtpUsernameFor(MailAddress{ "Studio", "studio@example.com" }),
+                "studio@example.com");
+        });
+}
+
+TEST(MailHelperTest, MakeMailHelperLogsInAsTheConfiguredSmtpUsername) {
+    auto secrets = Secrets::Test::MakeTestSecretsHelper();
+    secrets->AddSecretTest(Secrets::kMailAppPassword, "seeded-app-password");
+    secrets->AddSecretTest(Secrets::kMailSmtpUsername, "AKIAEXAMPLESMTPUSER");
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("MakeMailHelperLogsInAsTheConfiguredUsername",
+        [&](Transaction& transaction) {
+            MailHelperPtr helper = MakeMailHelper(transaction, secrets);
+            // The sender is still the studio's address — only the LOGIN name
+            // changes. That split is the whole point: SES authenticates the
+            // IAM user and the From address is a separately verified identity.
+            EXPECT_EQ(
+                helper->SmtpUsernameFor(MailAddress{ "Studio", "studio@example.com" }),
+                "AKIAEXAMPLESMTPUSER");
+        });
+}
+
+// The test double reports the historical answer, so a test that swaps it in
+// sees the same username the real helper would have used before this key.
+TEST(MailHelperTest, TestMailHelperReportsTheSenderAsTheUsername) {
+    Mail::Test::TestMailHelperPtr mailHelper = Mail::Test::MakeTestMailHelper();
+    EXPECT_EQ(
+        mailHelper->SmtpUsernameFor(MailAddress{ "Studio", "studio@example.com" }),
+        "studio@example.com");
+}
+
 TEST(MailHelperTest, SendMessageInvalidMethod) {
     auto secrets = Secrets::Test::MakeTestSecretsHelper();
     MailAddress from{ "Knotty Yoga", "knottyyogaandspa@gmail.com" };

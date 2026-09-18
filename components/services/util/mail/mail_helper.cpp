@@ -36,7 +36,8 @@ public:
     MailHelperImpl() = delete;
     MailHelperImpl(
         const std::string_view server,
-        unsigned int port, 
+        unsigned int port,
+        const std::string_view smtpUsername,
         const std::string_view password,
         MailAuthMethod authMethod);
     MailHelperImpl(const MailHelperImpl&) = default;
@@ -45,19 +46,26 @@ public:
 
     void SendMail(const MailMessage& message) override;
 
+    std::string SmtpUsernameFor(const MailAddress& from) const override {
+        return ResolveSmtpUsername(smtpUsername_, from.address);
+    }
+
 private:
     std::string server_;
     unsigned int port_ = 0;
+    std::string smtpUsername_;
     std::string password_;
-    MailAuthMethod authMethod_; 
+    MailAuthMethod authMethod_;
 };
 
 MailHelperImpl::MailHelperImpl(
     const std::string_view server,
-    unsigned int port, 
+    unsigned int port,
+    const std::string_view smtpUsername,
     const std::string_view password,
     MailAuthMethod authMethod)
-    : server_(server), port_(port), password_(password), authMethod_(authMethod) {
+    : server_(server), port_(port), smtpUsername_(smtpUsername),
+      password_(password), authMethod_(authMethod) {
 }
 
 mailio::smtps::auth_method_t ConvertAuthMethod(MailAuthMethod method) {
@@ -115,7 +123,8 @@ void MailHelperImpl::SendMail(const MailMessage& message) {
         // Send using SMTP
         mailio::smtps conn(server_, port_);
 
-        conn.authenticate(message.GetFrom().address, password_, ConvertAuthMethod(authMethod_));
+        conn.authenticate(
+            SmtpUsernameFor(message.GetFrom()), password_, ConvertAuthMethod(authMethod_));
 
         conn.submit(msg);
     }
@@ -138,18 +147,37 @@ MailAuthMethod ParseMailAuthMethod(const std::string_view methodStr) {
      }
 }
 
+std::string ResolveSmtpUsername(
+    std::string_view configuredUsername, std::string_view fromAddress) {
+    return configuredUsername.empty()
+        ? std::string(fromAddress)
+        : std::string(configuredUsername);
+}
+
 MailHelperPtr MakeMailHelper(
     const std::string_view server,
     unsigned int port,
     const std::string_view password,
     MailAuthMethod authMethod) {
-    return std::make_shared<MailHelperImpl>(server, port, password, authMethod);
+    return MakeMailHelper(server, port, /*smtpUsername=*/"", password, authMethod);
+}
+
+MailHelperPtr MakeMailHelper(
+    const std::string_view server,
+    unsigned int port,
+    const std::string_view smtpUsername,
+    const std::string_view password,
+    MailAuthMethod authMethod) {
+    return std::make_shared<MailHelperImpl>(
+        server, port, smtpUsername, password, authMethod);
 }
 
 MailHelperPtr MakeMailHelper(Transaction& transaction, Secrets::SecretsHelperPtr secretsHelper) {
     std::string server = secretsHelper->LookupSecret(transaction, Secrets::kMailServerName);
     std::string portStr = secretsHelper->LookupSecret(transaction, Secrets::kMailServerPort);
     unsigned int port = static_cast<unsigned int>(std::stoul(portStr));
+    std::string smtpUsername =
+        secretsHelper->LookupSecret(transaction, Secrets::kMailSmtpUsername);
     std::string password = secretsHelper->LookupSecret(transaction, Secrets::kMailAppPassword);
     // Phase 9.2: the framework ships an EMPTY default for mail_app_password so
     // no live credential sits in this public repo. Fail here, with a message an
@@ -166,7 +194,7 @@ MailHelperPtr MakeMailHelper(Transaction& transaction, Secrets::SecretsHelperPtr
     }
     std::string methodStr = secretsHelper->LookupSecret(transaction, Secrets::kMailServerMethod);
     MailAuthMethod authMethod = ParseMailAuthMethod(methodStr);
-    return MakeMailHelper(server, port, password, authMethod);
+    return MakeMailHelper(server, port, smtpUsername, password, authMethod);
 }
 
 }  // namespace Mail

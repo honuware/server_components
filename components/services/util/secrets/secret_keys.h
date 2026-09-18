@@ -11,6 +11,12 @@ inline constexpr std::string_view kMailAppPassword = "mail_app_password";
 inline constexpr std::string_view kMailServerName = "mail_server_name";
 inline constexpr std::string_view kMailServerPort = "mail_server_port";
 inline constexpr std::string_view kMailServerMethod = "mail_server_method";
+// The SMTP AUTH username, when it is not the sender address. Gmail logs in
+// with the mailbox address, so this stays empty there and the mail helper
+// falls back to the From address; Amazon SES issues an IAM-derived username
+// (an AKIA... string) that is nothing like an email address, so an SES
+// deployment sets this. See Mail::ResolveSmtpUsername.
+inline constexpr std::string_view kMailSmtpUsername = "mail_smtp_username";
 // Phase 3.2: these are secret KEY NAMES (like every other key here); the
 // brand-specific default VALUES ("Knotty Yoga and Spa" / the gmail address) are
 // registered app-side in business_logic/app_secret_values.cpp. Consumers MUST

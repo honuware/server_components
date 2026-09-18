@@ -67,6 +67,14 @@ public:
 
     virtual void SendMail(const MailMessage& message) = 0;
 
+    // The username this helper would present to SMTP AUTH for a message from
+    // `from`. Exposed so the wiring from config_secrets to the transport can be
+    // asserted without a live server; the base answer is the historical one
+    // (the sender address), which is what a test double also reports.
+    virtual std::string SmtpUsernameFor(const MailAddress& from) const {
+        return from.address;
+    }
+
 protected:
     MailHelper() = default;
     MailHelper(const MailHelper&) = default;
@@ -82,9 +90,27 @@ enum MailAuthMethod {
 
 MailAuthMethod ParseMailAuthMethod(const std::string_view methodStr);
 
+// Which name to log in with. Gmail authenticates the mailbox, so the sender
+// address IS the username and `mail_smtp_username` stays empty; Amazon SES
+// issues an IAM-derived AKIA... username that is nothing like an address, so
+// there the configured value wins. An empty configured value therefore means
+// "the way it always worked", and an existing database without the row keeps
+// behaving exactly as before.
+std::string ResolveSmtpUsername(
+    std::string_view configuredUsername, std::string_view fromAddress);
+
 MailHelperPtr MakeMailHelper(
     const std::string_view server,
-    unsigned int port, 
+    unsigned int port,
+    const std::string_view password,
+    MailAuthMethod authMethod);
+
+// As above, with an explicit SMTP AUTH username; empty falls back to the
+// sender address (ResolveSmtpUsername).
+MailHelperPtr MakeMailHelper(
+    const std::string_view server,
+    unsigned int port,
+    const std::string_view smtpUsername,
     const std::string_view password,
     MailAuthMethod authMethod);
 

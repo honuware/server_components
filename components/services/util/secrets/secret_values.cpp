@@ -35,6 +35,13 @@ inline constexpr std::string_view kMailServerNameValue = "smtp.gmail.com";
 // Use 465 for login(SSL), 587 for tls
 inline constexpr std::string_view kMailServerPortValue = "465";
 inline constexpr std::string_view kMailServerMethodValue = "login";
+// Empty means "log in as the sender address", which is what Gmail wants and
+// what every deployment did before this key existed — so an existing database
+// with no row for it behaves exactly as before (LookupSecret returns "" for a
+// missing row). Amazon SES is the reason it exists: its SMTP username is an
+// IAM-derived AKIA... string, not an address. It is an identifier rather than
+// a credential, but it is deployment-specific, so no real value belongs here.
+inline constexpr std::string_view kMailSmtpUsernameValue = "";
 
 // Website links (non-brand routing bits; the brand website ADDRESS lives
 // app-side)
@@ -156,6 +163,7 @@ void FillInSecretsStringView(std::function<void(std::string_view, std::string_vi
     addSecret(kMailServerName, kMailServerNameValue);
     addSecret(kMailServerPort, kMailServerPortValue);
     addSecret(kMailServerMethod, kMailServerMethodValue);
+    addSecret(kMailSmtpUsername, kMailSmtpUsernameValue);
     addSecret(kWebsiteLoginLink, kWebsiteLoginLinkValue);
     addSecret(kWebsiteApiLinkPrefix, kWebsiteApiLinkPrefixValue);
     addSecret(kWebsiteActivationLink, kWebsiteActivationLinkValue);
