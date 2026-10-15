@@ -20,6 +20,10 @@ constexpr std::string_view kIdempotencyConflict = "idempotency_conflict";
 // look the same to an attacker (no detail about WHY 429).
 constexpr std::string_view kTooManyAttempts = "too_many_attempts";
 constexpr std::string_view kInternalError = "internal_error";
+// A dependency the request needs is down (the database, typically) and the
+// request may succeed if retried shortly. Distinct from kInternalError so a
+// client can say "try again in a minute" rather than "something broke".
+constexpr std::string_view kServiceUnavailable = "service_unavailable";
 
 // Future payment error types
 constexpr std::string_view kPaymentDeclined = "payment_declined";
@@ -39,6 +43,7 @@ inline std::string_view GetTitleForType(std::string_view type) {
     if (type == kIdempotencyConflict) return "Conflict";
     if (type == kTooManyAttempts) return "Too Many Attempts";
     if (type == kInternalError) return "Internal Server Error";
+    if (type == kServiceUnavailable) return "Service Unavailable";
     if (type == kPaymentDeclined) return "Payment Declined";
     if (type == kPaymentFailed) return "Payment Failed";
     if (type == kVoucherInvalid) return "Invalid Voucher";
@@ -58,6 +63,7 @@ inline int GetStatusForType(std::string_view type) {
     if (type == kIdempotencyConflict) return 409;
     if (type == kTooManyAttempts) return 429;
     if (type == kInternalError) return 500;
+    if (type == kServiceUnavailable) return 503;
     if (type == kPaymentDeclined) return 402;
     if (type == kPaymentFailed) return 402;
     if (type == kVoucherInvalid) return 400;

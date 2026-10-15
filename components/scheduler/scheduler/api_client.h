@@ -15,14 +15,20 @@ namespace Scheduler {
 //
 // Wraps Http::HttpClient and adds session-cookie semantics:
 //   - Login() caches the credentials and parses Set-Cookie from the response.
-//   - CallEndpoint() attaches the stored cookies via a Cookie: header.
+//   - CallEndpoint() attaches the stored cookies via a Cookie: header, and on a
+//     state-changing method (POST/PUT/PATCH/DELETE) echoes the csrft cookie in
+//     an X-CSRF-Token header, as the SPA does, so the server's CsrfGuard
+//     accepts it.
 //   - On 401, CallEndpoint() clears the cookies, re-invokes Login() with the
 //     cached credentials, and retries the original request once.
 //
 // Cookie parsing here is intentionally minimal (single origin, no full RFC
 // 6265): we extract name=value before the first ';' from each Set-Cookie
 // header and store name → value. That's enough for the helper, which only
-// ever talks to one origin and only needs the session_token cookie.
+// ever talks to one origin. It needs BOTH cookies /api/login sets: the
+// session cookie and csrft. Until Finishing website Phase 4.4 only the last
+// Set-Cookie survived, csrft was lost, and CsrfGuard refused every scheduled
+// job with 403 from 10/8/2026.
 class ApiClient {
 public:
     // loginHeaders are attached to the POST /api/login request (and to every
@@ -46,7 +52,8 @@ public:
     bool Login(std::string_view email, std::string_view password);
 
     // Performs an authenticated HTTP call to baseUrl + path. Attaches a
-    // Cookie: header built from the stored cookies. If the response is 401
+    // Cookie: header built from the stored cookies, plus X-CSRF-Token (the
+    // csrft cookie's value) on POST/PUT/PATCH/DELETE. If the response is 401
     // and credentials have been cached, clears the cookies, calls Login()
     // again, and retries the original request once. The retried response
     // is returned regardless of status — the caller decides what to do.
@@ -82,13 +89,15 @@ private:
     // Returns an empty string when no cookies are stored.
     std::string BuildCookieHeader() const;
 
-    // Reads "Set-Cookie" / "set-cookie" from response headers and stores
-    // each entry. The current HttpClient flattens duplicate header keys
-    // into a single map entry, so in practice only the last Set-Cookie
-    // survives — fine for the helper, which only needs session_token.
+    // Stores every cookie the response sets: each entry of
+    // response.setCookies (every Set-Cookie, in order), plus a "Set-Cookie" /
+    // "set-cookie" entry in response.headers for a client that only fills the
+    // header map. The map keeps one value per name, so it alone would lose all
+    // but the last Set-Cookie.
     void HarvestSetCookies(const Http::HttpResponse& response);
 
-    // Performs a single Execute() with cookies attached and request
+    // Performs a single Execute() with cookies (and, on a state-changing
+    // method, the X-CSRF-Token header) attached and request
     // body/method/headers populated. No retry semantics.
     Http::HttpResponse ExecuteOnce(
         std::string_view method,

@@ -12,6 +12,11 @@ namespace Scheduler {
 
 namespace {
 
+// Mirror the server's CsrfGuard (platform/endpoints/csrf_guard.cpp): a
+// state-changing request must echo the csrft cookie in this header.
+constexpr std::string_view kCsrfCookieName = "csrft";
+constexpr std::string_view kCsrfHeaderName = "X-CSRF-Token";
+
 // Trim leading/trailing ASCII whitespace.
 std::string_view Trim(std::string_view s) {
     size_t start = 0;
@@ -39,6 +44,12 @@ bool IEquals(std::string_view a, std::string_view b) {
     return true;
 }
 
+// The methods CsrfGuard checks.
+bool IsStateChanging(std::string_view method) {
+    return IEquals(method, "POST") || IEquals(method, "PUT") ||
+           IEquals(method, "PATCH") || IEquals(method, "DELETE");
+}
+
 }  // namespace
 
 ApiClient::ApiClient(
@@ -54,13 +65,22 @@ ApiClient::ApiClient(
     }
 }
 
-bool ApiClient::Login(std::string_view email, std::string_view password) {
-    email_ = std::string(email);
-    password_ = std::string(password);
+bool ApiClient::Login(std::string_view emailView, std::string_view passwordView) {
+    // Copy BEFORE assigning the members. The 401 retry calls
+    // Login(email_, password_), so these views can point into the members'
+    // own buffers, and assigning email_ frees the buffer its view reads. Until
+    // Finishing website Phase 4.4 the re-login read freed memory and sent a
+    // garbled email, so the helper could never recover from an expired
+    // session (any address longer than the 15-character small-string buffer,
+    // such as scheduler@knottyyoga.local).
+    const std::string email(emailView);
+    const std::string password(passwordView);
+    email_ = email;
+    password_ = password;
 
     Json::Value loginBody(Json::JsonObject{
-        {"email", Json::Value(std::string(email))},
-        {"password", Json::Value(std::string(password))},
+        {"email", Json::Value(email)},
+        {"password", Json::Value(password)},
         {"remember", Json::Value(false)}
     });
 
@@ -135,6 +155,12 @@ Http::HttpResponse ApiClient::ExecuteOnce(
     if (!cookieHeader.empty()) {
         request.headers["Cookie"] = cookieHeader;
     }
+    if (IsStateChanging(method)) {
+        auto csrft = cookies_.find(std::string(kCsrfCookieName));
+        if (csrft != cookies_.end()) {
+            request.headers[std::string(kCsrfHeaderName)] = csrft->second;
+        }
+    }
     // Per-job headers are applied last so a job can override an engine-set
     // header (e.g. supply its own Content-Type) if it ever needs to.
     for (const auto& [name, value] : extraHeaders) {
@@ -194,10 +220,16 @@ std::string ApiClient::BuildCookieHeader() const {
 }
 
 void ApiClient::HarvestSetCookies(const Http::HttpResponse& response) {
+    // The header map first, then setCookies in order: setCookies repeats the
+    // map's entry when both are filled, and the last occurrence of a name
+    // must win.
     for (const auto& [key, value] : response.headers) {
         if (IEquals(key, "Set-Cookie")) {
             StoreSetCookie(value);
         }
+    }
+    for (const auto& value : response.setCookies) {
+        StoreSetCookie(value);
     }
 }
 

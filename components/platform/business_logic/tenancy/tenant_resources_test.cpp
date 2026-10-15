@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <set>
 #include <string>
 #include <string_view>
 
@@ -83,6 +84,31 @@ TEST(TenantResourcesTest, RegistryDistinctTenantsGetDistinctResources) {
 struct DerivedTenantResources : TenantResources {
     int appMarker = 42;
 };
+
+// GetAll is what the health check walks to probe every tenant's pool.
+TEST(TenantResourcesTest, RegistryGetAllListsEveryBuiltTenant) {
+    TenantResourceRegistry registry([](const TenantContext& context) {
+        auto resources = std::make_shared<TenantResources>();
+        resources->context = context;
+        return resources;
+    });
+    EXPECT_TRUE(registry.GetAll().empty());
+
+    registry.GetOrCreate(MakeContext(1, "a", "honuware_a"));
+    registry.GetOrCreate(MakeContext(2, "b", "honuware_b"));
+    registry.GetOrCreate(MakeContext(1, "a", "honuware_a"));  // cached, not a third
+
+    std::set<std::string> databases;
+    for (const TenantResourcesPtr& resources : registry.GetAll()) {
+        databases.insert(resources->context.databaseName);
+    }
+    EXPECT_EQ(databases, (std::set<std::string>{ "honuware_a", "honuware_b" }));
+    EXPECT_EQ(registry.GetAll().size(), 2u);
+
+    registry.Evict(1);
+    ASSERT_EQ(registry.GetAll().size(), 1u);
+    EXPECT_EQ(registry.GetAll()[0]->context.databaseName, "honuware_b");
+}
 
 TEST(TenantResourcesTest, RegistryCustomFactoryYieldsDerivedType) {
     TenantResourceRegistry registry([](const TenantContext& context) {

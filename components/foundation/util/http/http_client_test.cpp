@@ -1,5 +1,6 @@
 #include "http_client.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <future>
 #include <string>
@@ -24,6 +25,8 @@ namespace {
 // otherwise avoided, and the justification is narrow: one uncovered production
 // component. It does not generalise — a second live-server test needs its own
 // argument, not a reference to this one. Everything else keeps using the double.
+// (One has since made its own: platform/endpoints/api_client_end_to_end_test.cpp,
+// Finishing website Phase 4.4 -- a seam that handle_full() cannot reach.)
 //
 // No ThreadPool and no database are involved, so the CLAUDE.md rule about calling
 // ThreadPool::Shutdown() before a DB-touching assertion does not apply here.
@@ -35,6 +38,11 @@ TEST(HttpClientTest, RealClientRoundTripsAgainstALiveServer) {
     ([] {
         crow::response response(200, "pong");
         response.set_header("X-Honuware-Probe", "yes");
+        // Two Set-Cookie headers, as /api/login sends (session + csrft). The
+        // header map keeps one; setCookies must keep both (Finishing website
+        // Phase 4.4).
+        response.add_header("Set-Cookie", "first=1; Path=/");
+        response.add_header("Set-Cookie", "second=2; Path=/");
         return response;
     });
 
@@ -95,6 +103,66 @@ TEST(HttpClientTest, RealClientRoundTripsAgainstALiveServer) {
     }
     EXPECT_TRUE(sawProbeHeader)
         << "response headers did not survive the round trip";
+
+    // A repeated header reaches setCookies once per occurrence. Not in a fixed
+    // order: Crow keeps response headers in an unordered_multimap, and
+    // libstdc++ writes repeated names newest-first while MSVC writes them
+    // oldest-first. (That is why the scheduler helper lost csrft in particular
+    // on the Linux server: /api/login sets session_token then csrft, they went
+    // out as csrft, session_token, and the last-wins header map kept
+    // session_token.)
+    ASSERT_EQ(response.setCookies.size(), 2u);
+    EXPECT_NE(std::find(response.setCookies.begin(), response.setCookies.end(),
+                        "first=1; Path=/"),
+              response.setCookies.end());
+    EXPECT_NE(std::find(response.setCookies.begin(), response.setCookies.end(),
+                        "second=2; Path=/"),
+              response.setCookies.end());
+}
+
+// ParseResponseHeaderLine is the per-line parser the libcurl client runs.
+
+TEST(HttpClientTest, ParseResponseHeaderLineTrimsTheValue) {
+    HttpResponse response;
+    ParseResponseHeaderLine("Content-Type:   application/json \r\n", response);
+    EXPECT_EQ(response.headers["Content-Type"], "application/json");
+    EXPECT_TRUE(response.setCookies.empty());
+}
+
+TEST(HttpClientTest, ParseResponseHeaderLineIgnoresLinesWithoutAColon) {
+    HttpResponse response;
+    ParseResponseHeaderLine("HTTP/1.1 200 OK\r\n", response);
+    ParseResponseHeaderLine("\r\n", response);
+    EXPECT_TRUE(response.headers.empty());
+    EXPECT_TRUE(response.setCookies.empty());
+}
+
+TEST(HttpClientTest, ParseResponseHeaderLineKeepsEverySetCookie) {
+    HttpResponse response;
+    ParseResponseHeaderLine("Set-Cookie: session=abc; HttpOnly\r\n", response);
+    ParseResponseHeaderLine("set-cookie: csrft=xyz; Path=/\r\n", response);
+
+    ASSERT_EQ(response.setCookies.size(), 2u);
+    EXPECT_EQ(response.setCookies[0], "session=abc; HttpOnly");
+    EXPECT_EQ(response.setCookies[1], "csrft=xyz; Path=/");
+    // The header map still keeps one value per name, as before.
+    EXPECT_EQ(response.headers["Set-Cookie"], "session=abc; HttpOnly");
+    EXPECT_EQ(response.headers["set-cookie"], "csrft=xyz; Path=/");
+}
+
+TEST(HttpClientTest, ParseResponseHeaderLineRepeatedHeaderKeepsTheLastValue) {
+    HttpResponse response;
+    ParseResponseHeaderLine("Set-Cookie: a=1\r\n", response);
+    ParseResponseHeaderLine("Set-Cookie: b=2\r\n", response);
+    EXPECT_EQ(response.headers["Set-Cookie"], "b=2");
+    EXPECT_EQ(response.setCookies.size(), 2u);
+}
+
+TEST(HttpClientTest, ParseResponseHeaderLineEmptyValue) {
+    HttpResponse response;
+    ParseResponseHeaderLine("X-Empty:\r\n", response);
+    ASSERT_EQ(response.headers.count("X-Empty"), 1u);
+    EXPECT_EQ(response.headers["X-Empty"], "");
 }
 
 // TLS is deliberately NOT covered here, and that is a decision rather than an

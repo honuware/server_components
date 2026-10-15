@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <string_view>
 
 #include <crow.h>
 #include "web_app.h"
@@ -110,6 +111,10 @@ private:
     // X-Honuware-Site header), builds/caches its resources, and (re)binds the
     // session to the effective database. Called at the top of Initialize().
     void ResolveTenant();
+
+    // Writes the "request setup failed" line for an error Initialize()
+    // swallows, at most once a minute (WebApp::GetRequestSetupLogThrottle).
+    void LogRequestSetupFailure(std::string_view what);
 
     WebApp& app_;
     const crow::request& request_;

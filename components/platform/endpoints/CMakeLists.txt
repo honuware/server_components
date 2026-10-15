@@ -116,6 +116,9 @@ target_sources(${HONUWARE_TESTS_TARGET}
     cloudfront_origin_guard_test.cpp
     tenant_resolution_guard_test.cpp
     csrf_guard_test.cpp
+    # Finishing website Phase 4.4: the scheduler's ApiClient against a live
+    # WebApp (real cookies, CsrfGuard on).
+    api_client_end_to_end_test.cpp
     security_headers_test.cpp
     health_test.cpp
     site_info_test.cpp

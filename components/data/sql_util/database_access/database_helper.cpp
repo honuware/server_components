@@ -1,6 +1,8 @@
 #include "database_helper.h"
 #include <curl/curl.h>
 
+#include <mutex>
+
 #include "database_helper_base.h"
 #include "database_helper_init.h"
 #include "transaction_impl.h"
@@ -18,6 +20,9 @@ namespace {
         // Fetch the database connection object
         pqxx::connection& GetConnection() override;
 
+        // Open a fresh connection with the same parameters.
+        void ResetConnection() override;
+
         // Get the database name
         const std::string& GetDatabaseName() const override;
 
@@ -29,12 +34,22 @@ namespace {
         bool IsTest() const override { return false; }
 
     private:
+        // Kept so ResetConnection can open an identical connection later.
+        DatabaseHelperInit init_;
+        // Guards the pointer swap only; the CONNECTION is serialized by the
+        // transaction provider that owns this helper.
+        std::mutex connectionPointerMutex_;
         std::shared_ptr<pqxx::connection> connection_;
+        // The connection ResetConnection replaced, kept alive until the next
+        // reset: a caller that fetched GetConnection() just before the swap may
+        // still hold a reference to it, and destroying it under them would
+        // leave that reference dangling.
+        std::shared_ptr<pqxx::connection> retiredConnection_;
         std::string databaseName_;
     };
 
     DatabaseHelperProd::DatabaseHelperProd(const DatabaseHelperInit& init)
-        : databaseName_(init.dbname) {
+        : init_(init), databaseName_(init.dbname) {
         connection_ = std::make_shared<pqxx::connection>(
             init.GetConnectionString()
         );
@@ -44,7 +59,17 @@ namespace {
     }
 
     pqxx::connection& DatabaseHelperProd::GetConnection() {
+        std::lock_guard<std::mutex> lock(connectionPointerMutex_);
         return *connection_;
+    }
+
+    void DatabaseHelperProd::ResetConnection() {
+        // Opened BEFORE the swap: if the database is unreachable this throws
+        // and the old connection stays in place for the next attempt.
+        auto fresh = std::make_shared<pqxx::connection>(init_.GetConnectionString());
+        std::lock_guard<std::mutex> lock(connectionPointerMutex_);
+        retiredConnection_ = std::move(connection_);
+        connection_ = std::move(fresh);
     }
 
     const std::string& DatabaseHelperProd::GetDatabaseName() const {
@@ -55,7 +80,7 @@ namespace {
         std::string_view description, DatabaseHelper::DatabaseFunc databaseFunc) {
         std::string transactionDescription =
             "Running transaction: " + std::string(description);
-        pqxx::work trans(*connection_, transactionDescription);
+        pqxx::work trans(GetConnection(), transactionDescription);
         TransactionImpl transaction(trans);
         databaseFunc(transaction);
         trans.commit();
@@ -136,6 +161,10 @@ DatabaseHelper::~DatabaseHelper() {}
 
 pqxx::connection& DatabaseHelper::GetConnection() {
     return base_->GetConnection();
+}
+
+void DatabaseHelper::ResetConnection() {
+    base_->ResetConnection();
 }
 
 const std::string& DatabaseHelper::GetDatabaseName() const {

@@ -1,5 +1,9 @@
 #include "login.h"
 
+#include <string_view>
+
+#include <pqxx/except>
+
 #include "endpoints/endpoint_auth_helper.h"
 #include "business_logic/auth/login_gate.h"
 #include "business_logic/auth/person.h"
@@ -20,6 +24,10 @@
 namespace Endpoints {
 namespace {
 
+    // Shown to the user when sign-in cannot reach the database.
+    constexpr std::string_view kSignInUnavailable =
+        "Sign-in is temporarily unavailable. Please try again in a minute.";
+
     void HandlePost(WebApp* webApp, const crow::request& req, crow::response& resp) {
         try {
             EndpointAuthHelper endpointAuthHelper(*webApp, req, resp);
@@ -29,6 +37,15 @@ namespace {
 				return;
 			}
 			Login(endpointAuthHelper, req, resp, Json::Value::FromText(req.body));
+        }
+        catch (const pqxx::failure& e) {
+            // A DATABASE failure (connection lost, statement failed) is not a
+            // wrong password. On 10/15/2026 every sign-in during an outage
+            // answered "The email or password you entered is incorrect", with
+            // nothing in the log, and looked like a forgotten password. It now
+            // logs why and says to try again; nothing about the account or
+            // the password is revealed either way.
+            resp = ErrorResponse::ServiceUnavailable(kSignInUnavailable, e.what());
         }
         catch (std::exception& e) {
             resp = ErrorResponse::InvalidCredentials();
@@ -236,6 +253,8 @@ void Login(
         try {
             endpointAuthHelper.GetSession().InitializeFromLogin(
                 transaction, secrets, token, cookieManager, email, remember);
+        } catch (const pqxx::failure&) {
+            throw;  // a database failure: HandlePost answers 503, not 401
         } catch (...) {
             resp = ErrorResponse::InvalidCredentials();
             return;

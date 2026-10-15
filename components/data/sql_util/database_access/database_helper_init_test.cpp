@@ -311,6 +311,35 @@ TEST(DatabaseHelperInitTest, ConnectionStringIncludesAllRequiredKeys) {
     EXPECT_NE(conn.find("dbname=appdb"), std::string::npos);
 }
 
+// Finishing website Phase 4.1: every connection carries TCP keepalives and a
+// user timeout, so a connection the network silently dropped is noticed in
+// about 90 seconds rather than by the next request hours later. libpq accepting
+// them is proven by every database test, which connects with this string.
+TEST(DatabaseHelperInitTest, ConnectionStringCarriesTheLivenessOptions) {
+    EnvScope scope;
+    DatabaseHelperInit init(kTestDefaultDbName);
+    std::string conn = init.GetConnectionString();
+
+    for (const char* option : { "keepalives=1", "keepalives_idle=60",
+                                "keepalives_interval=10", "keepalives_count=3",
+                                "tcp_user_timeout=30000" }) {
+        EXPECT_NE(conn.find(option), std::string::npos)
+            << "missing " << option << " in: " << conn;
+    }
+}
+
+// The liveness options survive the no-database helper's omitted dbname, which
+// is the case that once let one parameter swallow the next.
+TEST(DatabaseHelperInitTest, LivenessOptionsSurviveAnEmptyDbName) {
+    EnvScope scope;
+    DatabaseHelperInit init(kTestDefaultDbName);
+    init.dbname.clear();
+    std::string conn = init.GetConnectionString();
+
+    EXPECT_NE(conn.find(" keepalives=1"), std::string::npos) << conn;
+    EXPECT_EQ(conn.find("dbname="), std::string::npos) << conn;
+}
+
 TEST(DatabaseHelperInitTest, ConnectionStringOmitsDbNameWhenEmpty) {
     // MakeNoDatabaseHelper clears the name so libpq defaults the database to the
     // user name -- which only works if the key is omitted, not emitted empty.

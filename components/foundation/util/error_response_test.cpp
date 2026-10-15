@@ -210,6 +210,32 @@ TEST(ErrorResponseTest, InternalErrorDefaultArgIsGeneric) {
               bodyExplicit["detail"].Get<std::string>());
 }
 
+// Finishing website Phase 4.3: a database outage answers 503 so a client can say
+// "try again in a minute", instead of a 401 that reads as a wrong password.
+TEST(ErrorResponseTest, ServiceUnavailable) {
+    crow::response resp = ErrorResponse::ServiceUnavailable();
+
+    EXPECT_EQ(resp.code, 503);
+    Json::Value body = ParseResponseBody(resp);
+    EXPECT_EQ(body["type"].Get<std::string>(), "service_unavailable");
+    EXPECT_EQ(body["title"].Get<std::string>(), "Service Unavailable");
+    EXPECT_EQ(body["status"].Get<int64_t>(), 503);
+    EXPECT_EQ(body["detail"].Get<std::string>(),
+              "The service is temporarily unavailable. Please try again in a minute.");
+}
+
+TEST(ErrorResponseTest, ServiceUnavailableShowsTheDetailButNeverTheServerContext) {
+    crow::response resp = ErrorResponse::ServiceUnavailable(
+        "Sign-in is temporarily unavailable.",
+        "Lost connection to the database server at 10.0.0.5:5432");
+
+    EXPECT_EQ(resp.code, 503);
+    Json::Value body = ParseResponseBody(resp);
+    EXPECT_EQ(body["detail"].Get<std::string>(), "Sign-in is temporarily unavailable.");
+    EXPECT_EQ(resp.body.find("10.0.0.5"), std::string::npos)
+        << "server context must be logged, never sent to the client";
+}
+
 TEST(ErrorResponseTest, PaymentDeclined) {
     crow::response resp = ErrorResponse::PaymentDeclined(
         "Your card was declined",
@@ -280,6 +306,7 @@ TEST(ErrorCodesTest, GetStatusForType) {
     EXPECT_EQ(ErrorCodes::GetStatusForType(ErrorCodes::kNotAuthorized), 403);
     EXPECT_EQ(ErrorCodes::GetStatusForType(ErrorCodes::kNotFound), 404);
     EXPECT_EQ(ErrorCodes::GetStatusForType(ErrorCodes::kInternalError), 500);
+    EXPECT_EQ(ErrorCodes::GetStatusForType(ErrorCodes::kServiceUnavailable), 503);
     EXPECT_EQ(ErrorCodes::GetStatusForType("unknown_type"), 500);
 }
 

@@ -38,6 +38,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     db_and_table_operations_test.cpp
     extensions_test.cpp
     pooled_transaction_provider_test.cpp
+    production_transaction_provider_test.cpp
     transaction_impl_test.cpp
 )
 

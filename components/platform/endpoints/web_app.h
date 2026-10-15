@@ -21,6 +21,7 @@
 #include "sql_util/schema/database_info.h"
 #include "sql_util/database_access/transaction_provider.h"
 #include "sql_util/table_helpers/admin_column_redactions.h"
+#include "util/log_throttle.h"
 
 namespace Secrets {
 
@@ -147,6 +148,13 @@ public:
         return tenantRegistry_;
     }
 
+    // Throttles EndpointAuthHelper's "request setup failed" log line to one a
+    // minute. Owned here rather than in a static so its state lives exactly as
+    // long as the server (and each test's WebApp starts fresh).
+    Util::LogThrottle& GetRequestSetupLogThrottle() {
+        return requestSetupLogThrottle_;
+    }
+
 private:
     AppType app_;
     DatabaseHelper databaseHelper_;
@@ -160,6 +168,7 @@ private:
     std::unordered_map<std::type_index, std::shared_ptr<void>> services_;
     std::shared_ptr<Tenancy::TenantResolver> tenantResolver_;
     std::shared_ptr<Tenancy::TenantResourceRegistry> tenantRegistry_;
+    Util::LogThrottle requestSetupLogThrottle_{std::chrono::minutes(1)};
 };
 
 // Base class for registering an individual route.

@@ -71,8 +71,27 @@ void EndpointAuthHelper::Initialize() {
                 }
             });
     }
+    // Swallowed, so the request carries on as signed-out rather than failing --
+    // but no longer silently. On 10/15/2026 a dead database connection failed
+    // every request here and nothing reached the log, so signed-in people just
+    // appeared signed out. One line a minute (with how many were held back)
+    // says it is happening. It also surfaces a tenant whose mail settings
+    // cannot be built (EnsureServices), which used to fail here quietly too.
+    catch (const std::exception& e) {
+        LogRequestSetupFailure(e.what());
+    }
     catch (...) {
-        // Swallow all errors here
+        LogRequestSetupFailure("unknown exception");
+    }
+}
+
+void EndpointAuthHelper::LogRequestSetupFailure(std::string_view what) {
+    int64_t suppressed = 0;
+    if (app_.GetRequestSetupLogThrottle().ShouldLog(&suppressed)) {
+        LogError() << "[endpoint_auth] event=request_setup_failed"
+                   << " path=" << request_.url
+                   << " error=\"" << what << "\""
+                   << " suppressed_since_last=" << suppressed << "\n";
     }
 }
 

@@ -88,7 +88,8 @@ void RegisterFrameworkEndpoints() {
     anchor = reinterpret_cast<AnchorFunc>(&GetRow);
     anchor = reinterpret_cast<AnchorFunc>(&GetRowByValues);
     anchor = reinterpret_cast<AnchorFunc>(&GetTableRows);
-    anchor = reinterpret_cast<AnchorFunc>(&GetHealth);
+    // GetHealth is overloaded; this function lives in the same TU (health.cpp).
+    anchor = reinterpret_cast<AnchorFunc>(&CollectHealthProbeTargets);
     anchor = reinterpret_cast<AnchorFunc>(&GetSiteInfo);
     anchor = reinterpret_cast<AnchorFunc>(&GetSiteFontFace);
     anchor = reinterpret_cast<AnchorFunc>(&GetManageSiteTheme);

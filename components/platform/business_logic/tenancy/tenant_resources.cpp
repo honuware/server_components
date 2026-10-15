@@ -82,4 +82,14 @@ void TenantResourceRegistry::Evict(int64_t tenantId) {
     resources_.erase(tenantId);
 }
 
+std::vector<TenantResourcesPtr> TenantResourceRegistry::GetAll() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<TenantResourcesPtr> all;
+    all.reserve(resources_.size());
+    for (const auto& entry : resources_) {
+        all.push_back(entry.second);
+    }
+    return all;
+}
+
 }  // namespace Tenancy

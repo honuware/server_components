@@ -369,6 +369,40 @@ TEST(ApiClientTest, CallEndpointRetriesOnce401AfterRelogin) {
     EXPECT_EQ(cookie2->second, "session_token=new");
 }
 
+// The re-login sends the SAME credentials as the first login. CallEndpoint
+// re-logs in with Login(email_, password_), views into the client's own
+// members; Login used to assign the members first, freeing the buffers its
+// views read, and sent garbage. Only an address longer than the 15-character
+// small-string buffer shows it -- the production service account is one.
+// (Finishing website Phase 4.4.)
+TEST(ApiClientTest, ReloginSendsTheOriginalCredentials) {
+    const std::string email = "scheduler@knottyyoga.local";
+    const std::string password = "a-service-account-password-longer-than-sso";
+
+    auto httpClient = Http::Test::MakeTestHttpClient();
+    Http::HttpResponse login1;
+    login1.statusCode = 200;
+    login1.headers["Set-Cookie"] = "session_token=old";
+    httpClient->QueueResponse(login1);
+    httpClient->QueueResponse(401, "");
+    Http::HttpResponse login2;
+    login2.statusCode = 200;
+    login2.headers["Set-Cookie"] = "session_token=new";
+    httpClient->QueueResponse(login2);
+    httpClient->QueueResponse(200, "");
+
+    ApiClient client(httpClient, "http://localhost:80");
+    ASSERT_TRUE(client.Login(email, password));
+    client.CallEndpoint("POST", "/api/admin/run_billing");
+
+    ASSERT_EQ(httpClient->GetRequestCount(), 4u);
+    const auto& relogin = httpClient->GetRequests()[2];
+    ASSERT_EQ(relogin.url, "http://localhost:80/api/login");
+    Json::Value body = Json::Value::FromText(relogin.body);
+    EXPECT_EQ(body["email"].Get<std::string>(), email);
+    EXPECT_EQ(body["password"].Get<std::string>(), password);
+}
+
 TEST(ApiClientTest, CallEndpointReturns401WhenReloginAlsoFails) {
     auto httpClient = Http::Test::MakeTestHttpClient();
 
@@ -427,6 +461,128 @@ TEST(ApiClientTest, CallEndpointDoesNotRetryOnNon401) {
     EXPECT_EQ(resp.statusCode, 500);
     // login + admin call only; no retry on 5xx.
     EXPECT_EQ(httpClient->GetRequestCount(), 2u);
+}
+
+// --- Every Set-Cookie + the CSRF header (Finishing website Phase 4.4) ---
+//
+// /api/login sets TWO cookies: the session cookie and csrft. CsrfGuard refuses
+// a POST/PUT/PATCH/DELETE whose X-CSRF-Token header does not match the csrft
+// cookie. The helper kept only the last Set-Cookie and sent no header, so every
+// scheduled job was refused with 403 from 10/8/2026.
+
+Http::HttpResponse TwoCookieLoginResponse(
+    const std::string& session, const std::string& csrft) {
+    Http::HttpResponse response;
+    response.statusCode = 200;
+    response.setCookies = {
+        "session_token=" + session + "; Path=/; HttpOnly",
+        "csrft=" + csrft + "; Path=/",
+    };
+    // As the real client fills it: the header map keeps only the last.
+    response.headers["Set-Cookie"] = response.setCookies.back();
+    return response;
+}
+
+TEST(ApiClientTest, LoginStoresEverySetCookie) {
+    auto httpClient = Http::Test::MakeTestHttpClient();
+    httpClient->QueueResponse(TwoCookieLoginResponse("abc", "xyz"));
+
+    ApiClient client(httpClient, "http://localhost:80");
+    ASSERT_TRUE(client.Login("u@example.com", "p"));
+
+    EXPECT_EQ(client.GetCookieCount(), 2u);
+    EXPECT_EQ(client.GetCookieValue("session_token"), "abc");
+    EXPECT_EQ(client.GetCookieValue("csrft"), "xyz");
+}
+
+TEST(ApiClientTest, StateChangingCallsSendBothCookiesAndTheCsrfHeader) {
+    for (const std::string method : {"POST", "PUT", "PATCH", "DELETE", "post"}) {
+        auto httpClient = Http::Test::MakeTestHttpClient();
+        httpClient->QueueResponse(TwoCookieLoginResponse("abc", "xyz"));
+        httpClient->QueueResponse(200, "");
+
+        ApiClient client(httpClient, "http://localhost:80");
+        ASSERT_TRUE(client.Login("u@example.com", "p"));
+        client.CallEndpoint(method, "/api/admin/send_event_reminders");
+
+        ASSERT_EQ(httpClient->GetRequestCount(), 2u) << method;
+        const auto& req = httpClient->GetRequests()[1];
+        auto cookie = req.headers.find("Cookie");
+        ASSERT_NE(cookie, req.headers.end()) << method;
+        EXPECT_EQ(cookie->second, "csrft=xyz; session_token=abc") << method;
+        auto csrf = req.headers.find("X-CSRF-Token");
+        ASSERT_NE(csrf, req.headers.end()) << method;
+        EXPECT_EQ(csrf->second, "xyz") << method;
+    }
+}
+
+TEST(ApiClientTest, GetSendsNoCsrfHeader) {
+    auto httpClient = Http::Test::MakeTestHttpClient();
+    httpClient->QueueResponse(TwoCookieLoginResponse("abc", "xyz"));
+    httpClient->QueueResponse(200, "");
+
+    ApiClient client(httpClient, "http://localhost:80");
+    ASSERT_TRUE(client.Login("u@example.com", "p"));
+    client.CallEndpoint("GET", "/api/me");
+
+    ASSERT_EQ(httpClient->GetRequestCount(), 2u);
+    const auto& req = httpClient->GetRequests()[1];
+    EXPECT_EQ(req.headers.find("X-CSRF-Token"), req.headers.end());
+    // The cookies still ride along.
+    EXPECT_NE(req.headers.find("Cookie"), req.headers.end());
+}
+
+TEST(ApiClientTest, NoCsrfCookieMeansNoCsrfHeader) {
+    auto httpClient = Http::Test::MakeTestHttpClient();
+    Http::HttpResponse loginResp;
+    loginResp.statusCode = 200;
+    loginResp.setCookies = {"session_token=abc; Path=/"};
+    httpClient->QueueResponse(loginResp);
+    httpClient->QueueResponse(200, "");
+
+    ApiClient client(httpClient, "http://localhost:80");
+    ASSERT_TRUE(client.Login("u@example.com", "p"));
+    client.CallEndpoint("POST", "/api/admin/run_billing");
+
+    const auto& req = httpClient->GetRequests()[1];
+    EXPECT_EQ(req.headers.find("X-CSRF-Token"), req.headers.end());
+}
+
+// A job's own header wins over the engine-set one, as for every other header.
+TEST(ApiClientTest, ExtraHeaderOverridesTheCsrfHeader) {
+    auto httpClient = Http::Test::MakeTestHttpClient();
+    httpClient->QueueResponse(TwoCookieLoginResponse("abc", "xyz"));
+    httpClient->QueueResponse(200, "");
+
+    ApiClient client(httpClient, "http://localhost:80");
+    ASSERT_TRUE(client.Login("u@example.com", "p"));
+    client.CallEndpoint("POST", "/api/admin/run_billing", "",
+        {{"X-CSRF-Token", "job-supplied"}});
+
+    const auto& req = httpClient->GetRequests()[1];
+    auto csrf = req.headers.find("X-CSRF-Token");
+    ASSERT_NE(csrf, req.headers.end());
+    EXPECT_EQ(csrf->second, "job-supplied");
+}
+
+// The 401 re-login replaces BOTH cookies, and the retry carries the new pair.
+TEST(ApiClientTest, ReloginReplacesBothCookies) {
+    auto httpClient = Http::Test::MakeTestHttpClient();
+    httpClient->QueueResponse(TwoCookieLoginResponse("old", "oldtoken"));
+    httpClient->QueueResponse(401, "");
+    httpClient->QueueResponse(TwoCookieLoginResponse("new", "newtoken"));
+    httpClient->QueueResponse(200, R"({"ok":true})");
+
+    ApiClient client(httpClient, "http://localhost:80");
+    ASSERT_TRUE(client.Login("u@example.com", "p"));
+    Http::HttpResponse resp = client.CallEndpoint("POST", "/api/admin/run_billing");
+    EXPECT_EQ(resp.statusCode, 200);
+
+    ASSERT_EQ(httpClient->GetRequestCount(), 4u);
+    const auto& retried = httpClient->GetRequests()[3];
+    EXPECT_EQ(retried.headers.at("Cookie"), "csrft=newtoken; session_token=new");
+    EXPECT_EQ(retried.headers.at("X-CSRF-Token"), "newtoken");
+    EXPECT_EQ(client.GetCookieCount(), 2u);
 }
 
 // --- Phase 11 logging ---

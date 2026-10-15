@@ -19,6 +19,13 @@ public:
     ~DatabaseHelper();
     // Fetch the database connection object
     pqxx::connection& GetConnection();
+    // Replace the connection with a freshly opened one (production helpers
+    // only; others throw std::logic_error). Throws if the database cannot be
+    // reached, leaving the old connection in place. NOT synchronized against
+    // in-flight use: the caller must hold whatever lock serializes this
+    // connection -- in practice ProductionTransactionProvider's, which is the
+    // only thing that runs SQL on a production helper's connection.
+    void ResetConnection();
     // Get the database name
     const std::string& GetDatabaseName() const;
     // Run the provided code in the context of a transaction

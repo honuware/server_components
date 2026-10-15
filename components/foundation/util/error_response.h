@@ -65,6 +65,15 @@ crow::response TooManyAttempts(std::string_view detail = "Too many attempts. Ple
 // stack-trace / SQL-error leakage to clients.
 crow::response InternalError(std::string_view serverContext = "");
 
+// 503 Service Unavailable - a dependency is down (the database, typically)
+// and the same request may well succeed in a minute. `detail` is shown to
+// the user, so it must be generic; `serverContext` (e.g. `e.what()`) is only
+// logged, as `event=internal_error_context` -- the same line InternalError
+// writes -- and never reaches the client.
+crow::response ServiceUnavailable(
+    std::string_view detail = "The service is temporarily unavailable. Please try again in a minute.",
+    std::string_view serverContext = "");
+
 // Future payment errors (402 Payment Required)
 crow::response PaymentDeclined(
     std::string_view detail,

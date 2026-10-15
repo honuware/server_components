@@ -24,6 +24,8 @@ target_sources(honuware_foundation
     json_value.h
     image_resize.h
     image_resize.cpp
+    log_throttle.h
+    log_throttle.cpp
     logging.h
     logging.cpp
     types.h
@@ -43,6 +45,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     image_resize_test.cpp
     json_util_test.cpp
     json_value_test.cpp
+    log_throttle_test.cpp
     logging_test.cpp
     types_test.cpp
     thread_pool_test.cpp

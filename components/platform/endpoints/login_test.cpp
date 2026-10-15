@@ -3,7 +3,17 @@
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
 
+#include <iostream>
+#include <memory>
+#include <sstream>
+#include <streambuf>
+#include <string>
+
+#include <pqxx/except>
+
 #include "endpoints/endpoint_test_helper.h"
+#include "business_logic/tenancy/tenant_resources.h"
+#include "sql_util/database_access/transaction_provider.h"
 #include "endpoints/web_app.h"
 #include "business_logic/auth/person.h"
 #include "business_logic/auth/server_config.h"
@@ -681,6 +691,93 @@ TEST(LoginTest, LoginAccountLockedEmitsAccountLockedEvent) {
             std::string(DbSchema::kAuthEventsKindAccountLocked));
         EXPECT_EQ(failCount, "1");
         EXPECT_EQ(lockCount, "1");
+    });
+    Auth::ServerConfig::Shutdown();
+}
+
+// =====================================================================
+// Finishing website Phase 4.3: a database outage is not a wrong password.
+// =====================================================================
+
+// The site's connection pool is dead, as it was on 10/15/2026: every
+// transaction throws the error libpqxx raises for a lost connection.
+class BrokenConnectionTransactionProvider : public TransactionProvider {
+public:
+    void RunInTransaction(DatabaseFunc) override {
+        throw pqxx::broken_connection("server closed the connection unexpectedly");
+    }
+};
+
+// RAII capture of std::cout AND std::cerr into one buffer. The context line is
+// written by Crow's logger, whose handler is honuware's (to std::cout by
+// default) once logging is initialized, or Crow's own (to std::cerr) before.
+class LogCapture {
+public:
+    LogCapture()
+        : originalOut_(std::cout.rdbuf(buffer_.rdbuf())),
+          originalErr_(std::cerr.rdbuf(buffer_.rdbuf())) {}
+    ~LogCapture() {
+        std::cout.rdbuf(originalOut_);
+        std::cerr.rdbuf(originalErr_);
+    }
+    LogCapture(const LogCapture&) = delete;
+    LogCapture& operator=(const LogCapture&) = delete;
+    std::string str() const { return buffer_.str(); }
+private:
+    std::stringstream buffer_;
+    std::streambuf* originalOut_;
+    std::streambuf* originalErr_;
+};
+
+// On 10/15/2026 sixteen sign-ins with the right password answered "The email
+// or password you entered is incorrect", because the endpoint turned every
+// exception into that 401 and logged nothing. A database failure now answers
+// 503 with a "try again" message; a wrong password still gets the 401
+// (LoginWrongPasswordSameShapeAsUnknownEmail).
+TEST(LoginTest, LoginAnswers503WhenTheDatabaseIsUnreachable) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("LoginDatabaseUnreachable", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+        endpointHelper.GetWebApp().SetTenantResourceRegistry(
+            std::make_shared<Tenancy::TenantResourceRegistry>(
+                [](const Tenancy::TenantContext& context) {
+                    auto resources = std::make_shared<Tenancy::TenantResources>();
+                    resources->context = context;
+                    resources->transactionProvider =
+                        std::make_shared<BrokenConnectionTransactionProvider>();
+                    return resources;
+                }));
+
+        crow::request req;
+        req.method = crow::HTTPMethod::POST;
+        req.url = "/api/login";
+        req.body = PostLoginBody("anyone@example.com", "Right!", false);
+        crow::response resp;
+        std::string captured;
+        {
+            LogCapture capture;
+            endpointHelper.GetWebApp().GetApp().handle_full(req, resp);
+            ThreadPool::GetInstance().Shutdown();
+            captured = capture.str();
+        }
+
+        // The cause reaches the journal, so an outage no longer hides there.
+        EXPECT_NE(captured.find(
+                      "[error_response] event=internal_error_context "
+                      "context=\"server closed the connection unexpectedly\""),
+                  std::string::npos)
+            << "captured: " << captured;
+
+        EXPECT_EQ(resp.code, 503);
+        Json::Value body = Json::Value::FromText(resp.body);
+        EXPECT_EQ(body["type"].Get<std::string>(), ErrorCodes::kServiceUnavailable);
+        EXPECT_EQ(body["detail"].Get<std::string>(),
+                  "Sign-in is temporarily unavailable. Please try again in a minute.");
+        // The server-side cause stays server-side.
+        EXPECT_EQ(resp.body.find("closed the connection"), std::string::npos);
     });
     Auth::ServerConfig::Shutdown();
 }

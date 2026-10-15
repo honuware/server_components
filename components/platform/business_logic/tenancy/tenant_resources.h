@@ -6,6 +6,7 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 #include "tenant_context.h"
 #include "sql_util/database_access/database_helper.h"
@@ -122,9 +123,14 @@ public:
     // Drops a cached tenant's resources (e.g. on suspension / reconfiguration).
     void Evict(int64_t tenantId);
 
+    // A snapshot of every tenant built so far, in no particular order. The
+    // health check probes each one's connection pool: those pools, not the
+    // deployment's global connection, are what requests run on.
+    std::vector<TenantResourcesPtr> GetAll() const;
+
 private:
     Factory factory_;
-    std::mutex mutex_;
+    mutable std::mutex mutex_;
     std::unordered_map<int64_t, TenantResourcesPtr> resources_;
 };
 

@@ -157,6 +157,19 @@ crow::response InternalError(std::string_view serverContext) {
         kGenericDetail);
 }
 
+crow::response ServiceUnavailable(
+    std::string_view detail, std::string_view serverContext) {
+    if (!serverContext.empty()) {
+        CROW_LOG_ERROR << "[error_response] event=internal_error_context "
+                       << "context=\"" << serverContext << "\"";
+    }
+    return Create(
+        ErrorCodes::kServiceUnavailable,
+        ErrorCodes::GetTitleForType(ErrorCodes::kServiceUnavailable),
+        ErrorCodes::GetStatusForType(ErrorCodes::kServiceUnavailable),
+        detail);
+}
+
 crow::response PaymentDeclined(
     std::string_view detail,
     std::string_view provider,

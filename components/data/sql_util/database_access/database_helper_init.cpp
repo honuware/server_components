@@ -90,6 +90,9 @@ std::string DatabaseHelperInit::GetConnectionString() const {
     if (!sslRootCert.empty()) {
         conn += " sslrootcert=" + sslRootCert;
     }
+    // Finishing website Phase 4.1 -- see kConnectionLivenessOptions.
+    conn += " ";
+    conn += std::string(kConnectionLivenessOptions);
     return conn;
 }
 
