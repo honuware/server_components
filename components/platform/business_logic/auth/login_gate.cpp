@@ -23,6 +23,11 @@ constexpr int64_t kDefaultVerifyMaxFailuresPerIp = 30;
 constexpr int64_t kDefaultVerifyFailureWindowMicros = 900LL * 1000000LL;
 constexpr int64_t kDefaultRememberMaxFailuresPerIp = 50;
 constexpr int64_t kDefaultRememberFailureWindowMicros = 900LL * 1000000LL;
+constexpr int64_t kDefaultPasswordResetMaxRequestsPerEmail = 5;
+constexpr int64_t kDefaultPasswordResetMaxRequestsPerIp = 20;
+constexpr int64_t kDefaultPasswordResetRequestWindowMicros = 3600LL * 1000000LL;  // 1 hour
+constexpr int64_t kDefaultPasswordResetMaxFailuresPerIp = 30;
+constexpr int64_t kDefaultPasswordResetFailureWindowMicros = 900LL * 1000000LL;
 
 }  // namespace
 
@@ -169,6 +174,72 @@ LoginGateResult LoginGate::CheckBeforeRemember(
     int64_t ipFailures = attempts.RecentFailureCountForIp(
         transaction, ip,
         DbSchema::kLoginAttemptsKindRemember,
+        windowMicros);
+    if (ipFailures >= ipThreshold) {
+        return LoginGateResult::RateLimitedIp;
+    }
+    return LoginGateResult::Allow;
+}
+
+LoginGateResult LoginGate::CheckBeforeForgotPassword(
+    Transaction& transaction,
+    Secrets::SecretsHelperPtr secrets,
+    std::string_view email,
+    std::string_view ip) {
+    int64_t windowMicros = LookupInt64Secret(
+        transaction, secrets,
+        Secrets::kAuthPasswordResetRequestWindowInMicros,
+        kDefaultPasswordResetRequestWindowMicros);
+    int64_t emailThreshold = LookupInt64Secret(
+        transaction, secrets,
+        Secrets::kAuthPasswordResetMaxRequestsPerEmailPerWindow,
+        kDefaultPasswordResetMaxRequestsPerEmail);
+    int64_t ipThreshold = LookupInt64Secret(
+        transaction, secrets,
+        Secrets::kAuthPasswordResetMaxRequestsPerIpPerWindow,
+        kDefaultPasswordResetMaxRequestsPerIp);
+
+    TableHelpers::LoginAttempts attempts(databaseHelper_);
+    if (!email.empty()) {
+        int64_t emailRequests = attempts.RecentAttemptCountForEmail(
+            transaction, email,
+            DbSchema::kLoginAttemptsKindPasswordResetRequest,
+            windowMicros);
+        if (emailRequests >= emailThreshold) {
+            return LoginGateResult::RateLimitedEmail;
+        }
+    }
+    if (!ip.empty()) {
+        int64_t ipRequests = attempts.RecentAttemptCountForIp(
+            transaction, ip,
+            DbSchema::kLoginAttemptsKindPasswordResetRequest,
+            windowMicros);
+        if (ipRequests >= ipThreshold) {
+            return LoginGateResult::RateLimitedIp;
+        }
+    }
+    return LoginGateResult::Allow;
+}
+
+LoginGateResult LoginGate::CheckBeforeResetPassword(
+    Transaction& transaction,
+    Secrets::SecretsHelperPtr secrets,
+    std::string_view ip) {
+    if (ip.empty()) return LoginGateResult::Allow;
+
+    int64_t windowMicros = LookupInt64Secret(
+        transaction, secrets,
+        Secrets::kAuthPasswordResetFailureWindowInMicros,
+        kDefaultPasswordResetFailureWindowMicros);
+    int64_t ipThreshold = LookupInt64Secret(
+        transaction, secrets,
+        Secrets::kAuthPasswordResetMaxFailuresPerIpPerWindow,
+        kDefaultPasswordResetMaxFailuresPerIp);
+
+    TableHelpers::LoginAttempts attempts(databaseHelper_);
+    int64_t ipFailures = attempts.RecentFailureCountForIp(
+        transaction, ip,
+        DbSchema::kLoginAttemptsKindPasswordReset,
         windowMicros);
     if (ipFailures >= ipThreshold) {
         return LoginGateResult::RateLimitedIp;

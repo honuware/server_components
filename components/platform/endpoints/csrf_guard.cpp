@@ -17,11 +17,19 @@ constexpr std::string_view kCsrfHeaderName = "X-CSRF-Token";
 
 // Bootstrap endpoints that set the csrft cookie on the response.
 // They cannot require it on the request — there is no prior session.
-constexpr std::array<std::string_view, 4> kBootstrapPaths = {
+//
+// Finishing website Phase 11: the two forgot-password endpoints are used by
+// someone who cannot sign in, so they have no cookie either. Exempting them
+// is safe for the same reason as register/verify: a forged forgot_password
+// can only mail a link to the address's own inbox (and is capped), and a
+// forged reset_password would need the secret from that mail.
+constexpr std::array<std::string_view, 6> kBootstrapPaths = {
     "/api/login",
     "/api/register",
     "/api/remember",
     "/api/verify",
+    "/api/forgot_password",
+    "/api/reset_password",
 };
 
 constexpr std::chrono::minutes kRejectLogThrottle{1};

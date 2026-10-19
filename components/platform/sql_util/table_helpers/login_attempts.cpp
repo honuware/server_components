@@ -73,6 +73,50 @@ int64_t LoginAttempts::RecentFailureCountForIp(
     }
 }
 
+int64_t LoginAttempts::RecentAttemptCountForEmail(
+    Transaction& transaction,
+    std::string_view emailLower,
+    std::string_view kind,
+    int64_t windowMicros) {
+    if (windowMicros <= 0) return 0;
+    std::string sql =
+        "SELECT count(*) FROM login_attempts "
+        "WHERE email_lower = $1 AND kind = $2 "
+        "AND attempted_at >= now_us() - $3::bigint";
+    std::string countStr = transaction.RunSqlStatementReturningOneValue(
+        sql,
+        std::string(emailLower),
+        std::string(kind),
+        std::to_string(windowMicros));
+    try {
+        return std::stoll(countStr);
+    } catch (...) {
+        return 0;
+    }
+}
+
+int64_t LoginAttempts::RecentAttemptCountForIp(
+    Transaction& transaction,
+    std::string_view ip,
+    std::string_view kind,
+    int64_t windowMicros) {
+    if (windowMicros <= 0) return 0;
+    std::string sql =
+        "SELECT count(*) FROM login_attempts "
+        "WHERE ip = $1 AND kind = $2 "
+        "AND attempted_at >= now_us() - $3::bigint";
+    std::string countStr = transaction.RunSqlStatementReturningOneValue(
+        sql,
+        std::string(ip),
+        std::string(kind),
+        std::to_string(windowMicros));
+    try {
+        return std::stoll(countStr);
+    } catch (...) {
+        return 0;
+    }
+}
+
 int64_t LoginAttempts::PurgeOlderThan(
     Transaction& transaction,
     int64_t ageMicros) {

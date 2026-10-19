@@ -22,6 +22,7 @@
 #include "email_verifications.h"
 #include "idempotency_keys.h"
 #include "login_attempts.h"
+#include "password_reset_tokens.h"
 #include "permission_implications.h"
 #include "permissions.h"
 #include "people.h"
@@ -74,6 +75,9 @@ namespace DbSchema {
 		MakeSessionsTable(databaseInfo);
 		MakeDeviceTokensTable(databaseInfo);
 		MakeEmailVerificationsTable(databaseInfo);
+		// Finishing website Phase 11: forgot-password links. Separate from
+		// email_verifications so both can be pending at once.
+		MakePasswordResetTokensTable(databaseInfo);
 
 		// Photo storage tables (framework). photos.h defines the whole cluster.
 		MakePhotoSupportTablesTable(databaseInfo);

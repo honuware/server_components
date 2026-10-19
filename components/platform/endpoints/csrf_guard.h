@@ -23,8 +23,10 @@
 //
 // Bootstrap endpoints (`/api/login`, `/api/register`, `/api/remember`,
 // `/api/verify`) are exempt — they SET the cookie, so they cannot
-// require it on input. Origin/Referer checks for those bootstrap
-// endpoints are deferred to a follow-up.
+// require it on input. So are `/api/forgot_password` and
+// `/api/reset_password`, which serve someone who can't sign in.
+// Origin/Referer checks for those bootstrap endpoints are deferred to a
+// follow-up.
 //
 // Test integration: production WebApp leaves the guard enabled; the
 // test fixture EndpointTestHelper calls `SetEnabled(false)` after

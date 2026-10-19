@@ -38,6 +38,13 @@ namespace DbSchema {
 	inline constexpr std::string_view kLoginAttemptsKindLogin = "login";
 	inline constexpr std::string_view kLoginAttemptsKindVerify = "verify";
 	inline constexpr std::string_view kLoginAttemptsKindRemember = "remember";
+	// Finishing website Phase 11: forgot password. Two buckets, because they
+	// are capped differently. Every "send me a link" REQUEST counts against
+	// the per-email and per-IP request caps, success or not, so the button
+	// can't flood an inbox. A reset ATTEMPT (a link being used) counts only
+	// when it fails, per IP, as verify does.
+	inline constexpr std::string_view kLoginAttemptsKindPasswordResetRequest = "password_reset_request";
+	inline constexpr std::string_view kLoginAttemptsKindPasswordReset = "password_reset";
 
 	void MakeLoginAttemptsTable(DatabaseInfo databaseInfo);
 

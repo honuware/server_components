@@ -345,5 +345,201 @@ TEST(LoginGateTest, RememberAllowsEmptyIp) {
     });
 }
 
+// ---------- CheckBeforeForgotPassword (Finishing website Phase 11) ----------
+
+void SeedForgotPasswordSecrets(
+    Transaction& tx,
+    Secrets::Test::SecretsHelperTestPtr secrets,
+    int64_t emailThreshold,
+    int64_t ipThreshold) {
+    secrets->AddSecret(tx,
+        Secrets::kAuthPasswordResetMaxRequestsPerEmailPerWindow,
+        std::to_string(emailThreshold));
+    secrets->AddSecret(tx,
+        Secrets::kAuthPasswordResetMaxRequestsPerIpPerWindow,
+        std::to_string(ipThreshold));
+    secrets->AddSecret(tx,
+        Secrets::kAuthPasswordResetRequestWindowInMicros,
+        std::to_string(60LL * 1000000LL));
+}
+
+// Requests are recorded as SUCCESSES (a request always "works"), so these
+// rows prove the gate counts volume, not failures.
+void InsertRequests(
+    Transaction& tx, DatabaseHelper db, int n,
+    std::string_view email, std::string_view ip) {
+    LoginAttempts attempts(db);
+    for (int i = 0; i < n; ++i) {
+        attempts.RecordAttempt(tx, email, ip,
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, /*success=*/true);
+    }
+}
+
+TEST(LoginGateTest, ForgotPasswordAllowsUnderTheCaps) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("ForgotPasswordUnderCaps", [&](Transaction& tx) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        SeedForgotPasswordSecrets(tx, secrets, 3, 5);
+        InsertRequests(tx, testDb.GetDatabaseHelper(), 2, "u@example.com", "10.0.0.1");
+
+        LoginGate gate(testDb.GetDatabaseHelper());
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(
+                      tx, secrets, "u@example.com", "10.0.0.1"),
+                  LoginGateResult::Allow);
+    });
+}
+
+TEST(LoginGateTest, ForgotPasswordCapsRequestsPerEmail) {
+    // The inbox-flooding case: many IPs, one victim address.
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("ForgotPasswordPerEmail", [&](Transaction& tx) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        SeedForgotPasswordSecrets(tx, secrets, /*emailThreshold=*/3, /*ipThreshold=*/100);
+        for (int i = 0; i < 3; ++i) {
+            InsertRequests(tx, testDb.GetDatabaseHelper(), 1,
+                "victim@example.com", "10.0.0." + std::to_string(i));
+        }
+
+        LoginGate gate(testDb.GetDatabaseHelper());
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(
+                      tx, secrets, "Victim@Example.com", "203.0.113.7"),
+                  LoginGateResult::RateLimitedEmail);
+        // Another address from the same fresh IP is still fine.
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(
+                      tx, secrets, "someone-else@example.com", "203.0.113.7"),
+                  LoginGateResult::Allow);
+    });
+}
+
+TEST(LoginGateTest, ForgotPasswordCapsRequestsPerIp) {
+    // One IP spraying many addresses.
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("ForgotPasswordPerIp", [&](Transaction& tx) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        SeedForgotPasswordSecrets(tx, secrets, /*emailThreshold=*/100, /*ipThreshold=*/3);
+        for (int i = 0; i < 3; ++i) {
+            InsertRequests(tx, testDb.GetDatabaseHelper(), 1,
+                "spray" + std::to_string(i) + "@example.com", "10.0.0.1");
+        }
+
+        LoginGate gate(testDb.GetDatabaseHelper());
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(
+                      tx, secrets, "fresh@example.com", "10.0.0.1"),
+                  LoginGateResult::RateLimitedIp);
+        // An empty IP (no proxy plumbing) skips the per-IP bucket.
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(
+                      tx, secrets, "fresh@example.com", ""),
+                  LoginGateResult::Allow);
+    });
+}
+
+TEST(LoginGateTest, ForgotPasswordIgnoresOtherKinds) {
+    // Failed logins and failed resets are different buckets.
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("ForgotPasswordOtherKinds", [&](Transaction& tx) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        SeedForgotPasswordSecrets(tx, secrets, 2, 2);
+        InsertFailures(tx, testDb.GetDatabaseHelper(), 5,
+            "u@example.com", "10.0.0.1", DbSchema::kLoginAttemptsKindLogin);
+        InsertFailures(tx, testDb.GetDatabaseHelper(), 5,
+            "u@example.com", "10.0.0.1", DbSchema::kLoginAttemptsKindPasswordReset);
+
+        LoginGate gate(testDb.GetDatabaseHelper());
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(
+                      tx, secrets, "u@example.com", "10.0.0.1"),
+                  LoginGateResult::Allow);
+    });
+}
+
+TEST(LoginGateTest, ForgotPasswordDefaultsAreFivePerEmailAndTwentyPerIp) {
+    // The plan's numbers, with no secrets row at all (an upgraded database
+    // gets the code's defaults until someone adds one).
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("ForgotPasswordDefaults", [&](Transaction& tx) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        secrets->AddSecret(tx, Secrets::kAuthPasswordResetMaxRequestsPerEmailPerWindow, "");
+        secrets->AddSecret(tx, Secrets::kAuthPasswordResetMaxRequestsPerIpPerWindow, "");
+        secrets->AddSecret(tx, Secrets::kAuthPasswordResetRequestWindowInMicros, "");
+        LoginGate gate(testDb.GetDatabaseHelper());
+
+        InsertRequests(tx, testDb.GetDatabaseHelper(), 4, "u@example.com", "");
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(tx, secrets, "u@example.com", ""),
+                  LoginGateResult::Allow);
+        InsertRequests(tx, testDb.GetDatabaseHelper(), 1, "u@example.com", "");
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(tx, secrets, "u@example.com", ""),
+                  LoginGateResult::RateLimitedEmail);
+
+        for (int i = 0; i < 19; ++i) {
+            InsertRequests(tx, testDb.GetDatabaseHelper(), 1,
+                "ip" + std::to_string(i) + "@example.com", "10.9.9.9");
+        }
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(tx, secrets, "new@example.com", "10.9.9.9"),
+                  LoginGateResult::Allow);
+        InsertRequests(tx, testDb.GetDatabaseHelper(), 1, "ip19@example.com", "10.9.9.9");
+        EXPECT_EQ(gate.CheckBeforeForgotPassword(tx, secrets, "new@example.com", "10.9.9.9"),
+                  LoginGateResult::RateLimitedIp);
+    });
+}
+
+TEST(LoginGateTest, FrameworkSecretDefaultsMatchThePlan) {
+    // The seeded defaults (secret_values.cpp) are the ones the plan names:
+    // a link lives 60 minutes; 5 requests per address and 20 per IP an hour.
+    auto secrets = Secrets::Test::MakeTestSecretsHelper();
+    EXPECT_EQ(secrets->LookupSecretTest(Secrets::kAuthPasswordResetTtlMinutes), "60");
+    EXPECT_EQ(secrets->LookupSecretTest(
+                  Secrets::kAuthPasswordResetMaxRequestsPerEmailPerWindow), "5");
+    EXPECT_EQ(secrets->LookupSecretTest(
+                  Secrets::kAuthPasswordResetMaxRequestsPerIpPerWindow), "20");
+    EXPECT_EQ(secrets->LookupSecretTest(
+                  Secrets::kAuthPasswordResetRequestWindowInMicros), "3600000000");
+}
+
+// ---------- CheckBeforeResetPassword ----------
+
+TEST(LoginGateTest, ResetPasswordRateLimitedPerIpOnFailures) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("ResetPasswordPerIp", [&](Transaction& tx) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        secrets->AddSecret(tx,
+            Secrets::kAuthPasswordResetMaxFailuresPerIpPerWindow, "3");
+        secrets->AddSecret(tx,
+            Secrets::kAuthPasswordResetFailureWindowInMicros,
+            std::to_string(60LL * 1000000LL));
+        LoginGate gate(testDb.GetDatabaseHelper());
+
+        InsertFailures(tx, testDb.GetDatabaseHelper(), 2,
+            "n/a", "10.0.0.1", DbSchema::kLoginAttemptsKindPasswordReset);
+        // Successes don't count toward a guessing cap.
+        LoginAttempts(testDb.GetDatabaseHelper()).RecordAttempt(tx,
+            "n/a", "10.0.0.1", DbSchema::kLoginAttemptsKindPasswordReset, true);
+        EXPECT_EQ(gate.CheckBeforeResetPassword(tx, secrets, "10.0.0.1"),
+                  LoginGateResult::Allow);
+
+        InsertFailures(tx, testDb.GetDatabaseHelper(), 1,
+            "n/a", "10.0.0.1", DbSchema::kLoginAttemptsKindPasswordReset);
+        EXPECT_EQ(gate.CheckBeforeResetPassword(tx, secrets, "10.0.0.1"),
+                  LoginGateResult::RateLimitedIp);
+        EXPECT_EQ(gate.CheckBeforeResetPassword(tx, secrets, ""),
+                  LoginGateResult::Allow);
+    });
+}
+
+TEST(LoginGateTest, ResetPasswordIsScopedToItsOwnKind) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("ResetPasswordOwnKind", [&](Transaction& tx) {
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        secrets->AddSecret(tx,
+            Secrets::kAuthPasswordResetMaxFailuresPerIpPerWindow, "2");
+        InsertFailures(tx, testDb.GetDatabaseHelper(), 5,
+            "n/a", "10.0.0.1", DbSchema::kLoginAttemptsKindVerify);
+        InsertFailures(tx, testDb.GetDatabaseHelper(), 5,
+            "n/a", "10.0.0.1", DbSchema::kLoginAttemptsKindPasswordResetRequest);
+
+        LoginGate gate(testDb.GetDatabaseHelper());
+        EXPECT_EQ(gate.CheckBeforeResetPassword(tx, secrets, "10.0.0.1"),
+                  LoginGateResult::Allow);
+    });
+}
+
 }  // namespace
 }  // namespace Auth

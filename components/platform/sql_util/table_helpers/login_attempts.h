@@ -57,6 +57,21 @@ public:
         std::string_view kind,
         int64_t windowMicros);
 
+    // Count EVERY attempt for `(email, kind)` / `(ip, kind)` within the
+    // last `windowMicros` microseconds, successful or not. For buckets that
+    // cap volume rather than guessing — forgot-password requests, which
+    // "succeed" whether or not the address has an account.
+    int64_t RecentAttemptCountForEmail(
+        Transaction& transaction,
+        std::string_view emailLower,
+        std::string_view kind,
+        int64_t windowMicros);
+    int64_t RecentAttemptCountForIp(
+        Transaction& transaction,
+        std::string_view ip,
+        std::string_view kind,
+        int64_t windowMicros);
+
     // Deletes rows older than `ageMicros` microseconds. Run by the
     // periodic cleanup job (Phase 5.8) so the table doesn't grow
     // unbounded.

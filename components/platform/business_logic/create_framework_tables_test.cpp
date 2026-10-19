@@ -7,6 +7,7 @@
 #include <gtest/gtest.h>
 
 #include "db_schema/make_framework_tables.h"
+#include "db_schema/password_reset_tokens.h"
 #include "db_schema/people.h"
 #include "db_schema/site_assets.h"
 #include "db_schema/permission_implications.h"
@@ -124,11 +125,11 @@ TEST(CreateFrameworkTablesTest, PopulateFrameworkTablesSeedsBaseline) {
                     std::string(DbSchema::kPeopleTable)),
                 "1");
 
-            // Security redactions present (people.password_hash + the other 3).
+            // Security redactions present (people.password_hash + the other 4).
             EXPECT_EQ(
                 transaction.RunSqlStatementReturningOneValue(
                     "SELECT count(*) FROM admin_column_redactions"),
-                "4");
+                "5");
             EXPECT_EQ(
                 transaction.RunSqlStatementReturningOneValue(
                     "SELECT count(*) FROM admin_column_redactions "
@@ -184,6 +185,47 @@ TEST(CreateFrameworkTablesTest, PopulateFrameworkTablesSeedsBaseline) {
                     "SELECT value FROM config_secrets WHERE name = $1",
                     std::string(Secrets::kSiteHeroImageUrl)),
                 "");
+        });
+}
+
+// Finishing website Phase 11.1: the forgot-password table is built for every new
+// database (no --migrate needed), and is schema only. Its token hash is a
+// credential, so like email_verifications it is redacted and appears in none of
+// the lists the generic CRUD endpoints take their allowed tables from.
+TEST(CreateFrameworkTablesTest, PasswordResetTokensIsBuiltAndKeptOutOfTheAdminLists) {
+    const auto& order = FrameworkTableCreationOrder();
+    const auto position = std::find(
+        order.begin(), order.end(), DbSchema::kPasswordResetTokensTable);
+    ASSERT_NE(position, order.end());
+    // Its foreign key needs people to exist first.
+    EXPECT_LT(std::find(order.begin(), order.end(), DbSchema::kPeopleTable),
+              position);
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction(
+        "PasswordResetTokensKeptOutOfAdminLists", [&](Transaction& transaction) {
+            DbSchema::DatabaseInfo info("framework_test");
+            PopulateFrameworkTables(transaction, testDb.GetDatabaseHelper(), info);
+
+            const std::string table(DbSchema::kPasswordResetTokensTable);
+            for (const char* listTable : {
+                     "admin_top_level_tables", "admin_nested_tables",
+                     "allowed_tables" }) {
+                EXPECT_EQ(
+                    transaction.RunSqlStatementReturningOneValue(
+                        std::string("SELECT count(*) FROM ") + listTable +
+                            " WHERE name = $1",
+                        table),
+                    "0")
+                    << listTable;
+            }
+            EXPECT_EQ(
+                transaction.RunSqlStatementReturningOneValue(
+                    "SELECT count(*) FROM admin_column_redactions "
+                    "WHERE table_name = $1 AND column_name = $2",
+                    table,
+                    std::string(DbSchema::kPasswordResetTokensTokenHash)),
+                "1");
         });
 }
 

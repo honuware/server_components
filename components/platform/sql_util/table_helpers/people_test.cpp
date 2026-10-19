@@ -542,6 +542,35 @@ TEST(PeopleTableTest, SetMustChangePasswordRoundTrips) {
         });
 }
 
+// ClearLoginLockout (Finishing website Phase 11): a completed password reset
+// unlocks the account the way a successful sign-in does.
+TEST(PeopleTableTest, ClearLoginLockoutZeroesTheCountAndLiftsTheLock) {
+    TestDatabaseUtil testDatabaseUtil;
+    testDatabaseUtil.RunInTransaction("ClearLoginLockout", [&](Transaction& transaction) {
+        People people(testDatabaseUtil.GetDatabaseHelper());
+        int64_t locked = people.AddPerson(
+            transaction, "locked@hotmail.com", "first1", "last1", "hash1");
+        int64_t other = people.AddPerson(
+            transaction, "other@hotmail.com", "first2", "last2", "hash2");
+        for (int64_t id : { locked, other }) {
+            transaction.RunSqlStatement(
+                "UPDATE people SET failed_login_attempts = 10, "
+                "locked_until = now_us() + 3600000000 WHERE id = $1",
+                std::to_string(id));
+        }
+
+        people.ClearLoginLockout(transaction, locked);
+
+        KeyValueTable cleared = people.GetPersonById(transaction, locked);
+        EXPECT_EQ(cleared[std::string(DbSchema::kPeopleFailedLoginAttempts)], "0");
+        EXPECT_EQ(cleared[std::string(DbSchema::kPeopleLockedUntil)], "");
+        // Nobody else is unlocked.
+        KeyValueTable untouched = people.GetPersonById(transaction, other);
+        EXPECT_EQ(untouched[std::string(DbSchema::kPeopleFailedLoginAttempts)], "10");
+        EXPECT_FALSE(untouched[std::string(DbSchema::kPeopleLockedUntil)].empty());
+        });
+}
+
 // must_change_password is an auth flag — the generic profile update must
 // keep rejecting it (the dedicated setter above is the only write path).
 TEST(PeopleTableTest, UpdatePersonStillRejectsMustChangePassword) {

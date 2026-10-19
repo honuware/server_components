@@ -46,6 +46,10 @@ public:
         Transaction& transaction,
         int64_t personId,
         bool mustChangePassword);
+    // Zeroes failed_login_attempts and lifts any locked_until, as a
+    // successful sign-in does. Finishing website Phase 11: a completed
+    // password reset unlocks the account too.
+    void ClearLoginLockout(Transaction& transaction, int64_t personId);
     void DeletePerson(Transaction& transaction, int64_t personId);
 
 private:

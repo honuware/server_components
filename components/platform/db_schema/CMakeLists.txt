@@ -43,6 +43,8 @@ target_sources(honuware_platform
     make_control_database_info.cpp
     make_framework_tables.h
     make_framework_tables.cpp
+    password_reset_tokens.h
+    password_reset_tokens.cpp
     people.h
     people.cpp
     permissions.h
@@ -74,6 +76,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     device_tokens_test.cpp
     email_verifications_test.cpp
     make_control_database_info_test.cpp
+    password_reset_tokens_test.cpp
     people_test.cpp
     role_assignments_test.cpp
     role_permissions_test.cpp

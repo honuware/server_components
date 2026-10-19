@@ -50,6 +50,10 @@ namespace DbSchema {
 	inline constexpr std::string_view kAuthEventsKindDeviceTokenRevoked = "device_token_revoked";
 	inline constexpr std::string_view kAuthEventsKindRoleAssigned = "role_assigned";
 	inline constexpr std::string_view kAuthEventsKindRoleRevoked = "role_revoked";
+	// Finishing website Phase 11: forgot password. Requested is written only
+	// when the address belongs to an account (there is no person otherwise).
+	inline constexpr std::string_view kAuthEventsKindPasswordResetRequested = "password_reset_requested";
+	inline constexpr std::string_view kAuthEventsKindPasswordResetCompleted = "password_reset_completed";
 
 	void MakeAuthEventsTable(DatabaseInfo databaseInfo);
 

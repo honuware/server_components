@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include "db_schema/make_framework_tables.h"
+#include "db_schema/password_reset_tokens.h"
 #include "db_schema/site_assets.h"
 #include "migration_namespace.h"
 #include "sql_util/database_access/database_metadata.h"
@@ -60,6 +62,32 @@ std::vector<Migration> BuildFrameworkMigrations() {
                 DbSchema::MakeSiteAssetsTable(databaseInfo);
                 DbOps::CreateTable(
                     transaction, databaseInfo, DbSchema::kSiteAssets);
+            },
+        },
+        // Finishing website Phase 11.1 — the forgot-password links. A new
+        // database gets the table from CreateFrameworkTables; this brings it
+        // to one installed before the table existed.
+        Migration{
+            NamespacedMigrationId(kFrameworkMigrationNamespace,
+                                  "0002_password_reset_tokens"),
+            [](Transaction& transaction) {
+                // Skipped when present, for the same reason as 0001: a fresh
+                // database already has it and an empty schema_migrations.
+                for (const std::string& table : DbMeta::ListTables(transaction)) {
+                    if (table == DbSchema::kPasswordResetTokensTable) {
+                        return;
+                    }
+                }
+                // Unlike site_assets, this table has a foreign key (onto
+                // people), and the DDL generator types that column by looking
+                // up the PARENT's metadata. A DatabaseInfo holding only this
+                // table cannot describe it, so describe every framework table
+                // and create just this one.
+                DbSchema::DatabaseInfo databaseInfo("");
+                DbSchema::MakeFrameworkTables(databaseInfo);
+                DbOps::CreateTable(
+                    transaction, databaseInfo,
+                    DbSchema::kPasswordResetTokensTable);
             },
         },
     };

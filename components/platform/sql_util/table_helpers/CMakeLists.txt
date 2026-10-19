@@ -39,6 +39,8 @@ target_sources(honuware_platform
     idempotency_keys.cpp
     login_attempts.h
     login_attempts.cpp
+    password_reset_tokens.h
+    password_reset_tokens.cpp
     people.h
     people.cpp
     permissions.h
@@ -102,6 +104,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     role_assignments_test.cpp
     idempotency_keys_test.cpp
     login_attempts_test.cpp
+    password_reset_tokens_test.cpp
     photo_instances_test.cpp
     site_assets_test.cpp
     site_fonts_test.cpp

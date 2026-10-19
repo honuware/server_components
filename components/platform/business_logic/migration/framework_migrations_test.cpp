@@ -6,10 +6,13 @@
 
 #include <gtest/gtest.h>
 
+#include "db_schema/password_reset_tokens.h"
 #include "db_schema/site_assets.h"
 #include "migration_namespace.h"
 #include "migration_runner.h"
 #include "sql_util/database_access/db_and_table_operations.h"
+#include "sql_util/table_helpers/password_reset_tokens.h"
+#include "sql_util/table_helpers/people.h"
 #include "sql_util/table_helpers/site_assets.h"
 #include "test/src/util/database_test_helper.h"
 
@@ -68,6 +71,44 @@ TEST(FrameworkMigrationsTest, SiteAssetsMigrationCreatesTheTable) {
     });
 }
 
+TEST(FrameworkMigrationsTest, PasswordResetTokensMigrationCreatesTheTable) {
+    // Finishing website Phase 11.1: a database installed before the
+    // forgot-password table existed gets it from `--migrate`.
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("PasswordResetTokensMigration", [&](Transaction& transaction) {
+        DbOps::DropTable(transaction, DbSchema::kPasswordResetTokensTable);
+
+        const std::vector<Migration> migrations = BuildFrameworkMigrations();
+        const Migration* passwordReset = nullptr;
+        for (const Migration& migration : migrations) {
+            if (migration.id == NamespacedMigrationId(
+                    kFrameworkMigrationNamespace, "0002_password_reset_tokens")) {
+                passwordReset = &migration;
+            }
+        }
+        ASSERT_NE(passwordReset, nullptr)
+            << "the password_reset_tokens migration is missing from the chain";
+
+        passwordReset->apply(transaction);
+
+        // Usable through the production helper, not merely present.
+        TableHelpers::People people(testDb.GetDatabaseHelper());
+        int64_t personId = people.AddPerson(
+            transaction, "migrated@example.com", "F", "L", "hash");
+        TableHelpers::PasswordResetTokens tokens(testDb.GetDatabaseHelper());
+        tokens.ReplaceForPerson(transaction, personId, "the-hash", 1);
+        EXPECT_EQ(tokens.GetForPerson(transaction, personId)
+                      .at(std::string(DbSchema::kPasswordResetTokensTokenHash)),
+                  "the-hash");
+        // The foreign key came with it: deleting the person deletes the link.
+        people.DeletePerson(transaction, personId);
+        EXPECT_TRUE(tokens.GetForPerson(transaction, personId).empty());
+
+        // And a second run (the next deploy) leaves it alone.
+        EXPECT_NO_THROW(passwordReset->apply(transaction));
+    });
+}
+
 TEST(FrameworkMigrationsTest, TheChainIsSafeOnAFreshDatabaseThatAlreadyHasEverything) {
     // The case a migration chain is easiest to get wrong: `--recreate_database`
     // builds every table and records NOTHING in schema_migrations, so the next
@@ -90,6 +131,7 @@ TEST(FrameworkMigrationsTest, RunningTheChainTwiceIsSafe) {
     TestDatabaseUtil testDb;
     testDb.RunInTransaction("MigrationsTwice", [&](Transaction& transaction) {
         DbOps::DropTable(transaction, DbSchema::kSiteAssets);
+        DbOps::DropTable(transaction, DbSchema::kPasswordResetTokensTable);
         MigrationRunner runner(testDb.GetDatabaseHelper());
         const std::vector<Migration> migrations = BuildFrameworkMigrations();
         for (const Migration& migration : migrations) {

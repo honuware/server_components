@@ -32,6 +32,9 @@ inline constexpr std::string_view kWebsiteAddressLogin = "website_address_login"
 inline constexpr std::string_view kWebsiteApiLinkPrefix = "api_link_prefix";
 inline constexpr std::string_view kWebsiteActivationLink = "activation_link";
 inline constexpr std::string_view kWebsiteLoginLink = "login_link";
+// Finishing website Phase 11: the SPA route the password-reset mail points at,
+// appended to kWebsiteAddressLogin as kWebsiteActivationLink is.
+inline constexpr std::string_view kWebsitePasswordResetLink = "password_reset_link";
 
 // Tenancy plan Phase 7.1: per-tenant public branding. The SPA reads these via
 // GET /api/site_info to brand a shared bundle at runtime. Brand-free KEY name;
@@ -128,6 +131,21 @@ inline constexpr std::string_view kAuthRememberFailureWindowInMicros = "auth_rem
 // Retention for the login_attempts table — purged by the periodic
 // cleanup job.
 inline constexpr std::string_view kAuthLoginAttemptsRetentionInMicros = "auth_login_attempts_retention_in_micros";
+
+// Finishing website Phase 11: forgot password.
+// How long a reset link works, in minutes. The reset mail quotes it.
+inline constexpr std::string_view kAuthPasswordResetTtlMinutes = "auth_password_reset_ttl_minutes";
+// "Send me a link" requests. Unlike the buckets above these count EVERY
+// request, not just failures: the cap exists so the button can't be used to
+// flood someone's inbox, and a request "succeeds" whether or not the address
+// has an account.
+inline constexpr std::string_view kAuthPasswordResetMaxRequestsPerEmailPerWindow = "auth_password_reset_max_requests_per_email";
+inline constexpr std::string_view kAuthPasswordResetMaxRequestsPerIpPerWindow = "auth_password_reset_max_requests_per_ip";
+inline constexpr std::string_view kAuthPasswordResetRequestWindowInMicros = "auth_password_reset_request_window_in_micros";
+// Using a link: failures per IP only, like verify — the caller has no
+// confirmed email.
+inline constexpr std::string_view kAuthPasswordResetMaxFailuresPerIpPerWindow = "auth_password_reset_max_failures_per_ip";
+inline constexpr std::string_view kAuthPasswordResetFailureWindowInMicros = "auth_password_reset_failure_window_in_micros";
 
 // Phase 9.2 of the security review: digest delivery for admin_alerts.
 // The scheduler hits /api/admin/notify_admin_alerts every N minutes;

@@ -75,6 +75,10 @@ inline constexpr std::string_view kSiteAboutHeadingValue = "";
 // browser history.
 inline constexpr std::string_view kWebsiteActivationLinkValue = "verify";
 inline constexpr std::string_view kWebsiteLoginLinkValue = "login/";
+// Finishing website Phase 11: @honuware/ui's ResetPasswordComponent route
+// (AUTH_ROUTES.resetPasswordPath). Like verify, the SPA reads the email and
+// secret from the query string and POSTs them; the API never sees a GET.
+inline constexpr std::string_view kWebsitePasswordResetLinkValue = "reset-password";
 
 // Auth related values
 // This value is a week in microseconds
@@ -127,6 +131,17 @@ inline constexpr std::string_view kAuthRememberFailureWindowInMicrosValue = "900
 // Retention default: 30 days. 30 * 24 * 60 * 60 * 1,000,000 = 2,592,000,000,000.
 inline constexpr std::string_view kAuthLoginAttemptsRetentionInMicrosValue = "2592000000000";
 
+// Finishing website Phase 11: forgot password. A link works for an hour.
+// Requests: 5 per address and 20 per IP in any hour (one hour in
+// microseconds: 60 * 60 * 1,000,000 = 3,600,000,000). Using a link: 30 wrong
+// tries per IP in 15 minutes, the same as verify.
+inline constexpr std::string_view kAuthPasswordResetTtlMinutesValue = "60";
+inline constexpr std::string_view kAuthPasswordResetMaxRequestsPerEmailPerWindowValue = "5";
+inline constexpr std::string_view kAuthPasswordResetMaxRequestsPerIpPerWindowValue = "20";
+inline constexpr std::string_view kAuthPasswordResetRequestWindowInMicrosValue = "3600000000";
+inline constexpr std::string_view kAuthPasswordResetMaxFailuresPerIpPerWindowValue = "30";
+inline constexpr std::string_view kAuthPasswordResetFailureWindowInMicrosValue = "900000000";
+
 // Phase 9.2 of the security review: digest delivery for admin_alerts.
 // Recipient is empty by default — operators MUST set this in
 // config_secrets to opt in. An empty recipient turns the digest job
@@ -167,6 +182,7 @@ void FillInSecretsStringView(std::function<void(std::string_view, std::string_vi
     addSecret(kWebsiteLoginLink, kWebsiteLoginLinkValue);
     addSecret(kWebsiteApiLinkPrefix, kWebsiteApiLinkPrefixValue);
     addSecret(kWebsiteActivationLink, kWebsiteActivationLinkValue);
+    addSecret(kWebsitePasswordResetLink, kWebsitePasswordResetLinkValue);
     addSecret(kSiteLogoUrl, kSiteLogoUrlValue);
     addSecret(kSiteFaviconUrl, kSiteFaviconUrlValue);
     addSecret(kSiteHeroImageUrl, kSiteHeroImageUrlValue);
@@ -190,6 +206,12 @@ void FillInSecretsStringView(std::function<void(std::string_view, std::string_vi
     addSecret(kAuthRememberMaxFailuresPerIpPerWindow, kAuthRememberMaxFailuresPerIpPerWindowValue);
     addSecret(kAuthRememberFailureWindowInMicros, kAuthRememberFailureWindowInMicrosValue);
     addSecret(kAuthLoginAttemptsRetentionInMicros, kAuthLoginAttemptsRetentionInMicrosValue);
+    addSecret(kAuthPasswordResetTtlMinutes, kAuthPasswordResetTtlMinutesValue);
+    addSecret(kAuthPasswordResetMaxRequestsPerEmailPerWindow, kAuthPasswordResetMaxRequestsPerEmailPerWindowValue);
+    addSecret(kAuthPasswordResetMaxRequestsPerIpPerWindow, kAuthPasswordResetMaxRequestsPerIpPerWindowValue);
+    addSecret(kAuthPasswordResetRequestWindowInMicros, kAuthPasswordResetRequestWindowInMicrosValue);
+    addSecret(kAuthPasswordResetMaxFailuresPerIpPerWindow, kAuthPasswordResetMaxFailuresPerIpPerWindowValue);
+    addSecret(kAuthPasswordResetFailureWindowInMicros, kAuthPasswordResetFailureWindowInMicrosValue);
     addSecret(kAdminAlertsRecipient, kAdminAlertsRecipientValue);
     addSecret(kAdminAlertsLastNotifiedUs, kAdminAlertsLastNotifiedUsValue);
     addSecret(kServerProductionMode, kServerProductionModeValue);

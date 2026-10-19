@@ -24,6 +24,7 @@
 #include "db_schema/email_verifications.h"
 #include "db_schema/idempotency_keys.h"
 #include "db_schema/login_attempts.h"
+#include "db_schema/password_reset_tokens.h"
 #include "db_schema/permission_implications.h"
 #include "db_schema/permissions.h"
 #include "db_schema/people.h"
@@ -98,6 +99,7 @@ const std::vector<std::string_view>& FrameworkTableCreationOrder() {
         DbSchema::kSessionsTable,
         DbSchema::kDeviceTokensTable,
         DbSchema::kEmailVerificationsTable,
+        DbSchema::kPasswordResetTokensTable,
         DbSchema::kPhotoSupportTables,
         DbSchema::kPhotoInstances,
         DbSchema::kSourcePhotos,
@@ -240,6 +242,8 @@ void PopulateFrameworkTables(
             DbSchema::kDeviceTokensTable, DbSchema::kDeviceTokensSecretHash);
         AddRedaction(DbSchema::kEmailVerificationsTable,
             DbSchema::kEmailVerificationsTokenHash);
+        AddRedaction(DbSchema::kPasswordResetTokensTable,
+            DbSchema::kPasswordResetTokensTokenHash);
         AddRedaction(DbSchema::kSessionsTable, DbSchema::kSessionsUuid);
     }
 

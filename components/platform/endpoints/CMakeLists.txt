@@ -76,6 +76,11 @@ target_sources(honuware_platform
     set_user_info.cpp
     update_user_password.h
     update_user_password.cpp
+    # Finishing website Phase 11.4: forgot password.
+    forgot_password.h
+    forgot_password.cpp
+    reset_password.h
+    reset_password.cpp
     has_photo.h
     has_photo.cpp
     upload_photo.h
@@ -139,6 +144,8 @@ target_sources(${HONUWARE_TESTS_TARGET}
     get_user_info_test.cpp
     set_user_info_test.cpp
     update_user_password_test.cpp
+    forgot_password_test.cpp
+    reset_password_test.cpp
     has_photo_test.cpp
     upload_photo_test.cpp
     upload_user_photo_test.cpp

@@ -227,6 +227,96 @@ TEST(LoginAttemptsTest, ZeroOrNegativeWindowReturnsZero) {
     });
 }
 
+// ---------- RecentAttemptCount* (Finishing website Phase 11) ----------
+
+TEST(LoginAttemptsTest, RecentAttemptCountForEmailCountsSuccessesToo) {
+    // The forgot-password request cap counts volume: a request "succeeds"
+    // whether or not the address has an account, so successes must count.
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction(
+        "RecentAttemptCountForEmailCountsSuccessesToo", [&](Transaction& tx) {
+        LoginAttempts helper(testDb.GetDatabaseHelper());
+        helper.RecordAttempt(
+            tx, "u@example.com", "1.1.1.1",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, /*success=*/true);
+        helper.RecordAttempt(
+            tx, "U@Example.com", "2.2.2.2",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, /*success=*/false);
+        // Another address, and another kind: neither counts.
+        helper.RecordAttempt(
+            tx, "other@example.com", "1.1.1.1",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, /*success=*/true);
+        helper.RecordAttempt(
+            tx, "u@example.com", "1.1.1.1",
+            DbSchema::kLoginAttemptsKindLogin, /*success=*/true);
+
+        EXPECT_EQ(helper.RecentAttemptCountForEmail(
+            tx, "u@example.com",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest,
+            /*windowMicros=*/60LL * 1000000LL), 2);
+    });
+}
+
+TEST(LoginAttemptsTest, RecentAttemptCountForIpCountsSuccessesToo) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction(
+        "RecentAttemptCountForIpCountsSuccessesToo", [&](Transaction& tx) {
+        LoginAttempts helper(testDb.GetDatabaseHelper());
+        helper.RecordAttempt(
+            tx, "a@example.com", "10.0.0.1",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, /*success=*/true);
+        helper.RecordAttempt(
+            tx, "b@example.com", "10.0.0.1",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, /*success=*/false);
+        helper.RecordAttempt(
+            tx, "c@example.com", "10.0.0.2",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, /*success=*/true);
+        helper.RecordAttempt(
+            tx, "a@example.com", "10.0.0.1",
+            DbSchema::kLoginAttemptsKindPasswordReset, /*success=*/false);
+
+        EXPECT_EQ(helper.RecentAttemptCountForIp(
+            tx, "10.0.0.1",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest,
+            /*windowMicros=*/60LL * 1000000LL), 2);
+    });
+}
+
+TEST(LoginAttemptsTest, RecentAttemptCountsRespectTheWindow) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction(
+        "RecentAttemptCountsRespectTheWindow", [&](Transaction& tx) {
+        LoginAttempts helper(testDb.GetDatabaseHelper());
+        tx.RunSqlStatement(
+            "INSERT INTO login_attempts "
+            "(email_lower, ip, attempted_at, success, kind) "
+            "VALUES ($1, $2, $3, $4, $5)",
+            std::string("u@example.com"),
+            std::string("1.1.1.1"),
+            std::string("1"),  // very old
+            std::string("t"),
+            std::string(DbSchema::kLoginAttemptsKindPasswordResetRequest));
+        helper.RecordAttempt(
+            tx, "u@example.com", "1.1.1.1",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, /*success=*/true);
+
+        const int64_t narrow = 5LL * 1000000LL;
+        EXPECT_EQ(helper.RecentAttemptCountForEmail(
+            tx, "u@example.com",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, narrow), 1);
+        EXPECT_EQ(helper.RecentAttemptCountForIp(
+            tx, "1.1.1.1",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, narrow), 1);
+        // And the same guard as the failure counts: no window, no count.
+        EXPECT_EQ(helper.RecentAttemptCountForEmail(
+            tx, "u@example.com",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, 0), 0);
+        EXPECT_EQ(helper.RecentAttemptCountForIp(
+            tx, "1.1.1.1",
+            DbSchema::kLoginAttemptsKindPasswordResetRequest, -1), 0);
+    });
+}
+
 TEST(LoginAttemptsTest, PurgeOlderThanBasic) {
     TestDatabaseUtil testDb;
     testDb.RunInTransaction("PurgeOlderThanBasic", [&](Transaction& tx) {

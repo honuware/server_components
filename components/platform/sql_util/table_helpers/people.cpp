@@ -157,6 +157,14 @@ void People::SetMustChangePassword(
         { std::string(DbSchema::kDatabaseInfoDefaultNow), "true", "false" });
 }
 
+void People::ClearLoginLockout(Transaction& transaction, int64_t personId) {
+    transaction.RunSqlStatement(
+        "UPDATE people "
+        "SET failed_login_attempts = 0, locked_until = NULL, updated_at = now_us() "
+        "WHERE id = $1",
+        StringFromInt(personId));
+}
+
 void People::DeletePerson(Transaction& transaction, int64_t personId) {
     DbCrud::DeleteRow(
         transaction,

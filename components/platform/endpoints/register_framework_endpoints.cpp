@@ -34,6 +34,8 @@
 #include "endpoints/get_user_info.h"
 #include "endpoints/set_user_info.h"
 #include "endpoints/update_user_password.h"
+#include "endpoints/forgot_password.h"
+#include "endpoints/reset_password.h"
 #include "endpoints/has_photo.h"
 #include "endpoints/upload_photo.h"
 #include "endpoints/upload_user_photo.h"
@@ -115,6 +117,9 @@ void RegisterFrameworkEndpoints() {
     anchor = reinterpret_cast<AnchorFunc>(&GetUserInfo);
     anchor = reinterpret_cast<AnchorFunc>(&SetUserInfo);
     anchor = reinterpret_cast<AnchorFunc>(&UpdateUserPassword);
+    // Finishing website Phase 11.4: forgot password.
+    anchor = reinterpret_cast<AnchorFunc>(&ForgotPassword);
+    anchor = reinterpret_cast<AnchorFunc>(&ResetPassword);
     anchor = reinterpret_cast<AnchorFunc>(&GetHasPhoto);
     anchor = reinterpret_cast<AnchorFunc>(&PostUploadPhoto);
     anchor = reinterpret_cast<AnchorFunc>(&PostUploadUserPhoto);

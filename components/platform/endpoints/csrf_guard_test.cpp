@@ -18,7 +18,8 @@
 //   - Enabled by default; SetEnabled toggles the gate.
 //   - GET / HEAD / OPTIONS bypass.
 //   - Bootstrap paths (/api/login, /api/register, /api/remember,
-//     /api/verify) bypass — including with a query string.
+//     /api/verify, /api/forgot_password, /api/reset_password) bypass —
+//     including with a query string.
 //   - Missing csrft cookie → 403 with the right JSON body.
 //   - Missing X-CSRF-Token header → 403.
 //   - Mismatched cookie / header → 403.
@@ -136,6 +137,27 @@ TEST(CsrfGuardTest, RememberPathBypasses) {
 TEST(CsrfGuardTest, VerifyPathBypasses) {
     CsrfGuard guard;
     auto req = MakeReq(crow::HTTPMethod::Post, "/api/verify");
+    crow::response res;
+    CsrfGuard::context ctx;
+    guard.before_handle(req, res, ctx);
+    EXPECT_FALSE(WasRejected(res));
+}
+
+// Finishing website Phase 11: someone who forgot their password has no
+// session and so no csrft cookie. Without these two exemptions every
+// forgot-password request from the SPA would be refused 403.
+TEST(CsrfGuardTest, ForgotPasswordPathBypasses) {
+    CsrfGuard guard;
+    auto req = MakeReq(crow::HTTPMethod::Post, "/api/forgot_password");
+    crow::response res;
+    CsrfGuard::context ctx;
+    guard.before_handle(req, res, ctx);
+    EXPECT_FALSE(WasRejected(res));
+}
+
+TEST(CsrfGuardTest, ResetPasswordPathBypasses) {
+    CsrfGuard guard;
+    auto req = MakeReq(crow::HTTPMethod::Post, "/api/reset_password");
     crow::response res;
     CsrfGuard::context ctx;
     guard.before_handle(req, res, ctx);

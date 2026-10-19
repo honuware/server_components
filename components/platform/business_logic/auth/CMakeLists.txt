@@ -12,6 +12,10 @@ target_sources(honuware_platform
     auth_helper.cpp
     login_gate.h
     login_gate.cpp
+    password_reset_helper.h
+    password_reset_helper.cpp
+    password_reset_mail.h
+    password_reset_mail.cpp
     person.h
     person.cpp
     person_verify_mail.h
@@ -59,6 +63,8 @@ target_sources(${HONUWARE_TESTS_TARGET}
     auth_cookies_test.cpp
     auth_helper_test.cpp
     login_gate_test.cpp
+    password_reset_helper_test.cpp
+    password_reset_mail_test.cpp
     person_test.cpp
     person_verify_mail_test.cpp
     proxy_trust_test.cpp

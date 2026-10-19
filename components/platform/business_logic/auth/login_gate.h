@@ -71,6 +71,24 @@ public:
         Secrets::SecretsHelperPtr secrets,
         std::string_view ip);
 
+    // Finishing website Phase 11: pre-flight check for /api/forgot_password.
+    // Caps REQUESTS per email and per IP — every request counts, not just
+    // failures — so the button can't be used to flood someone's inbox. Email
+    // first, then IP, as for login. An unknown address is capped the same as
+    // a known one; the gate never looks the account up.
+    LoginGateResult CheckBeforeForgotPassword(
+        Transaction& transaction,
+        Secrets::SecretsHelperPtr secrets,
+        std::string_view email,
+        std::string_view ip);
+
+    // Pre-flight check for /api/reset_password (a reset link being used).
+    // Failures per IP only, like verify: the caller has no confirmed email.
+    LoginGateResult CheckBeforeResetPassword(
+        Transaction& transaction,
+        Secrets::SecretsHelperPtr secrets,
+        std::string_view ip);
+
 private:
     DatabaseHelper databaseHelper_;
 
