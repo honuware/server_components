@@ -48,6 +48,11 @@ std::string GenerateVerifyMailBodySuffixHelper(
 // Populate the placeholders shared by every builder. Branding (studio name +
 // website URL) comes from the app-supplied TenantBranding; the rest are the
 // per-recipient / routing values.
+//
+// The address is encoded here, strictly, because it only appears in the link.
+// It used to arrive pre-encoded with URLEncode, which leaves "+" alone, and the
+// SPA's router read that "+" as a space, so a plus-addressed account could
+// never activate (Finishing website OQ-25).
 KeyValueTable BuildKeyValueTable(
     std::string_view emailFrom,
     std::string_view firstNameTo,
@@ -56,7 +61,7 @@ KeyValueTable BuildKeyValueTable(
     std::string_view apiLinkPrefix,
     std::string_view activationLink) {
     KeyValueTable keyValueTable;
-    AddToKeyValueTable(keyValueTable, "email_from", emailFrom);
+    AddToKeyValueTable(keyValueTable, "email_from", URLEncodeQueryValue(emailFrom));
     AddToKeyValueTable(keyValueTable, "first_name", firstNameTo);
     AddToKeyValueTable(keyValueTable, "last_name", lastNameTo);
     AddToKeyValueTable(keyValueTable, "studio_name", branding.studioName);

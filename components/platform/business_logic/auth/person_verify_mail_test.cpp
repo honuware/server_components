@@ -52,7 +52,7 @@ R"(<!DOCTYPE html>
     <h1>Test Studio Account Activation</h1>
     <p>Greetings First,</p>
     <p/>
-    <p><a href="https://example.com/verify?email=user@example.com&secret=)";
+    <p><a href="https://example.com/verify?email=user%40example.com&secret=)";
 constexpr std::string_view kExpectedSuffix =
 R"(">Click here to activate your account.</a></p>
 </body>
@@ -70,7 +70,7 @@ R"(<!DOCTYPE html>
     <h1>Test Studio Account Activation</h1>
     <p>Greetings First,</p>
     <p/>
-    <p><a href="https://example.com/verify?email=user@example.com&secret=ABC123">Click here to activate your account.</a></p>
+    <p><a href="https://example.com/verify?email=user%40example.com&secret=ABC123">Click here to activate your account.</a></p>
 </body>
 </html>
 )";
@@ -128,6 +128,16 @@ TEST(PersonVerifyMailTest, WebsiteUrlIsSubstitutedFromBranding) {
         kEmailFrom, kFirstName, kLastName, branding, kApiPrefix, kActivation);
     EXPECT_THAT(prefix,
                 testing::HasSubstr("https://other.example.net/verify"));
+}
+
+// Finishing website OQ-25: the link's "+" must be encoded. Left bare, the SPA's
+// router reads it as a space and the account can never be activated.
+TEST(PersonVerifyMailTest, PlusAddressedEmailIsEncodedInTheLink) {
+    const std::string body = GenerateVerifyMailBody(
+        "mason+test@example.com", kEncodedSecret, kFirstName, kLastName,
+        MakeBranding(), kApiPrefix, kActivation);
+    EXPECT_THAT(body, testing::HasSubstr(
+        "https://example.com/verify?email=mason%2Btest%40example.com&secret=ABC123\""));
 }
 
 }  // namespace

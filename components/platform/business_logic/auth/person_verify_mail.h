@@ -8,6 +8,8 @@
 namespace Auth {
 namespace Mail {
 
+// `emailFrom` is the account's address as stored, not encoded: the builders
+// percent-encode it for the link with URLEncodeQueryValue.
 std::string GenerateVerifyMailBody(
     std::string_view emailFrom,
     std::string_view encodedSecret,

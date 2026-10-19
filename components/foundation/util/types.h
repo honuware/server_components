@@ -183,6 +183,13 @@ std::string FormatString(
 std::string URLEncode(std::string_view str);
 std::string URLDecode(std::string_view str);
 
+// Percent-encodes `value` for use as one value in a query string: every byte
+// outside A–Z a–z 0–9 - . _ ~ becomes %XX. Use it for links that a browser
+// app parses. URLEncode leaves "+" and "@" as they are, and Angular's router
+// reads an unencoded "+" in a query as a space, so a plus-addressed email
+// (a+b@x.com) would arrive as "a b@x.com".
+std::string URLEncodeQueryValue(std::string_view value);
+
 std::pair<std::string_view, std::string_view> SplitString(
     std::string_view strToBeSplit, std::string_view delimiter);
 

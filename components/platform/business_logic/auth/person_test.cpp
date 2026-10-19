@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
+#include <algorithm>
+#include <regex>
 #include <thread>
 
 #include "sql_util/table_helpers/people.h"
@@ -15,6 +17,7 @@
 #include "sql_util/database_common.h"
 #include "business_logic/auth/auth_helper.h"
 #include "util/date_time_util.h"
+#include "util/types.h"
 #include "test/src/util/test_helper.h"
 #include "sql_util/table_helpers/email_verifications.h"
 #include "person_verify_mail_test_util.h"
@@ -197,6 +200,39 @@ TEST(PersonHelperTest, VerifyPersonEmailWrongTokenFails) {
         KeyValueTable kv = emailVerifications.GetEmailVerificationInfoByEmail(
             transaction, victim.email);
         EXPECT_FALSE(kv.empty());
+        });
+}
+
+// Finishing website OQ-25: a plus-addressed account activates from its mail.
+// The link is read back the way the SPA reads it (Angular's router turns a bare
+// "+" in a query into a space, then decodes %XX), and the values go to
+// VerifyPersonEmail as the SPA posts them to /api/verify.
+TEST(PersonHelperTest, PlusAddressedEmailActivatesFromItsLink) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("PlusAddressedEmailActivatesFromItsLink", [&](Transaction& transaction) {
+        TestMailHelperPtr mailHelper = MakeTestMailHelper();
+        auto secrets = Secrets::Test::MakeTestSecretsHelper();
+        PersonHelper helper = MakePersonHelper(transaction, testDb.GetDatabaseHelper());
+
+        PersonInfo info{ "mason+test@example.com", "Plus", "Address" };
+        helper.PreliminaryRegisterPerson(transaction, secrets, mailHelper, info, "Pass123!", true);
+        ASSERT_EQ(mailHelper->GetMessages().size(), 1u);
+
+        const std::string body = mailHelper->GetMessages()[0].GetBodyHtml();
+        std::smatch match;
+        ASSERT_TRUE(std::regex_search(
+            body, match, std::regex("\\?email=([^&\"]*)&secret=([^\"]*)\"")));
+        auto decodeLikeTheSpa = [](std::string value) {
+            std::replace(value.begin(), value.end(), '+', ' ');
+            return URLDecode(value);
+        };
+        const std::string email = decodeLikeTheSpa(match[1].str());
+        const std::string secret = decodeLikeTheSpa(match[2].str());
+        EXPECT_EQ(email, info.email);
+
+        EXPECT_FALSE(helper.IsPerson(transaction, info.email));
+        helper.VerifyPersonEmail(transaction, secrets, email, secret);
+        EXPECT_TRUE(helper.IsPerson(transaction, info.email));
         });
 }
 

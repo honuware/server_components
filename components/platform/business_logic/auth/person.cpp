@@ -145,7 +145,7 @@ void PersonHelper::PreliminaryRegisterPerson(
         branding.websiteUrl = spaBaseUrl;
 
         std::string mailBody = Auth::Mail::GenerateVerifyMailBody(
-            URLEncode(personInfo.email),
+            personInfo.email,
             tokenUrlSafeEncoded,
             personInfo.firstName,
             personInfo.lastName,

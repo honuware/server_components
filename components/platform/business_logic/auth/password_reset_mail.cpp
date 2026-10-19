@@ -30,28 +30,6 @@ R"HTML(<!DOCTYPE html>
 </html>
 )HTML";
 
-bool IsUnreserved(unsigned char c) {
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-           (c >= '0' && c <= '9') ||
-           c == '-' || c == '.' || c == '_' || c == '~';
-}
-
-std::string EncodeQueryValue(std::string_view value) {
-    static constexpr char kHex[] = "0123456789ABCDEF";
-    std::string encoded;
-    encoded.reserve(value.size() * 3);
-    for (unsigned char c : value) {
-        if (IsUnreserved(c)) {
-            encoded.push_back(static_cast<char>(c));
-        } else {
-            encoded.push_back('%');
-            encoded.push_back(kHex[c >> 4]);
-            encoded.push_back(kHex[c & 0x0F]);
-        }
-    }
-    return encoded;
-}
-
 }  // namespace
 
 std::string BuildPasswordResetLink(
@@ -62,8 +40,8 @@ std::string BuildPasswordResetLink(
     KeyValueTable params;
     params["website_url"] = std::string(websiteUrl);
     params["reset_path"] = std::string(resetPath);
-    params["email"] = EncodeQueryValue(email);
-    params["secret"] = EncodeQueryValue(secret);
+    params["email"] = URLEncodeQueryValue(email);
+    params["secret"] = URLEncodeQueryValue(secret);
     return FormatString(kLinkTemplate, params);
 }
 

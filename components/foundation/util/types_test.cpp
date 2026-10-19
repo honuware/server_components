@@ -424,6 +424,30 @@ namespace
         EXPECT_THAT(decoded, Eq(original));
     }
 
+    TEST(TypesTest, URLEncodeQueryValueEncodesPlusAndAt) {
+        EXPECT_THAT(URLEncodeQueryValue("mason+test@example.com"),
+                    Eq("mason%2Btest%40example.com"));
+    }
+
+    TEST(TypesTest, URLEncodeQueryValueLeavesUnreservedAlone) {
+        constexpr std::string_view unreserved =
+            "ABCXYZabcxyz0189-._~";
+        EXPECT_THAT(URLEncodeQueryValue(unreserved), Eq(unreserved));
+    }
+
+    TEST(TypesTest, URLEncodeQueryValueEncodesEverythingElse) {
+        EXPECT_THAT(URLEncodeQueryValue(" &=?/#%"),
+                    Eq("%20%26%3D%3F%2F%23%25"));
+        // Bytes above 0x7F (here the UTF-8 for "é") use upper-case hex.
+        EXPECT_THAT(URLEncodeQueryValue("\xC3\xA9"), Eq("%C3%A9"));
+        EXPECT_THAT(URLEncodeQueryValue(""), Eq(""));
+    }
+
+    TEST(TypesTest, URLEncodeQueryValueRoundTripsThroughURLDecode) {
+        constexpr std::string_view original = "a+b c@d&e=f%g\xC3\xA9";
+        EXPECT_THAT(URLDecode(URLEncodeQueryValue(original)), Eq(original));
+    }
+
     TEST(TypesTest, SplitStringBasic) {
         auto [left, right] = SplitString("key=value", "=");
         EXPECT_THAT(left, Eq("key"));
