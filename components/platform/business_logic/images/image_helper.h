@@ -113,6 +113,18 @@ public:
     // full MIME type, because uploads arrive spelled all three ways.
     static bool IsVectorType(std::string_view type);
 
+    // Are these bytes an SVG document? (Finishing website 14.1.)
+    //
+    // A raster format announces itself in its first bytes; an SVG is text and
+    // has no such mark, so an upload LABELLED "svg" could be anything. This
+    // reads past what may legally come before the root element — a UTF-8
+    // byte-order mark, whitespace, the XML declaration and any other processing
+    // instruction, comments, and a DOCTYPE (internal subset included) — and
+    // then requires the first element to be <svg>. A PNG sent as "svg" fails at
+    // its first byte, and an HTML page fails at <html>, however much SVG it
+    // carries further down.
+    static bool IsSvgDocument(std::string_view bytes);
+
 private:
     DatabaseHelper databaseHelper_;
     Secrets::SecretsHelperPtr secretsHelper_;

@@ -81,6 +81,62 @@ bool ImageHelper::IsVectorType(std::string_view type) {
     return subtype == "svg" || subtype == "svg+xml";
 }
 
+bool ImageHelper::IsSvgDocument(std::string_view bytes) {
+    std::string_view rest = bytes;
+    constexpr std::string_view kUtf8ByteOrderMark = "\xEF\xBB\xBF";
+    if (rest.substr(0, kUtf8ByteOrderMark.size()) == kUtf8ByteOrderMark) {
+        rest.remove_prefix(kUtf8ByteOrderMark.size());
+    }
+
+    auto isXmlWhitespace = [](char c) {
+        return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+    };
+    // Each skipper consumes one leading construct and reports whether it did.
+    // An unterminated one is left in place, so the root check below fails.
+    auto skipDelimited = [&rest](std::string_view open, std::string_view close) {
+        if (rest.substr(0, open.size()) != open) return false;
+        const auto end = rest.find(close, open.size());
+        if (end == std::string_view::npos) return false;
+        rest.remove_prefix(end + close.size());
+        return true;
+    };
+    // A DOCTYPE's internal subset ([...]) holds declarations that end in '>'
+    // themselves, so its end is the first '>' AFTER the subset closes.
+    auto skipDoctype = [&rest]() {
+        constexpr std::string_view kOpen = "<!DOCTYPE";
+        if (rest.substr(0, kOpen.size()) != kOpen) return false;
+        auto end = rest.find('>', kOpen.size());
+        const auto subset = rest.find('[', kOpen.size());
+        if (subset != std::string_view::npos && subset < end) {
+            const auto subsetEnd = rest.find(']', subset);
+            if (subsetEnd == std::string_view::npos) return false;
+            end = rest.find('>', subsetEnd);
+        }
+        if (end == std::string_view::npos) return false;
+        rest.remove_prefix(end + 1);
+        return true;
+    };
+
+    while (true) {
+        while (!rest.empty() && isXmlWhitespace(rest.front())) {
+            rest.remove_prefix(1);
+        }
+        if (skipDelimited("<?", "?>") || skipDelimited("<!--", "-->") ||
+            skipDoctype()) {
+            continue;
+        }
+        break;
+    }
+
+    constexpr std::string_view kRoot = "<svg";
+    if (rest.size() <= kRoot.size() || rest.substr(0, kRoot.size()) != kRoot) {
+        return false;
+    }
+    // "<svg" must be the whole element name, not the start of "<svgfoo".
+    const char next = rest[kRoot.size()];
+    return isXmlWhitespace(next) || next == '>' || next == '/';
+}
+
 PhotoData ImageHelper::EnforceMaxDimensions(
     const std::vector<char>& imageBytes,
     std::string_view imageType,
@@ -143,6 +199,14 @@ UploadResult ImageHelper::UploadAndAssociatePhoto(
     if (!isVector && imageTypeEnum < 0) {
         result.errorMessage = "Unsupported image type '"
             + std::string(imageType) + "'";
+        return result;
+    }
+    // A vector has no magic bytes to vouch for its label, so the bytes are
+    // checked here (Finishing website 14.1). Otherwise a PNG labelled "svg"
+    // would be stored as a vector and served as image/svg+xml.
+    if (isVector &&
+        !IsSvgDocument(std::string_view(imageBytes.data(), imageBytes.size()))) {
+        result.errorMessage = "The file is not an SVG document";
         return result;
     }
 

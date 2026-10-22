@@ -71,10 +71,12 @@ Json::Value PostUploadPhoto(
         return {};
     }
 
-    // Validate image type
-    if (imageType != "jpeg" && imageType != "png") {
+    // Validate image type. "svg" is what the photo picker sends for a vector
+    // (Finishing website 14.1); ImageHelper refuses one whose bytes aren't an
+    // SVG document, so a mislabelled raster comes back as a 400 below.
+    if (imageType != "jpeg" && imageType != "png" && imageType != "svg") {
         resp = ErrorResponse::BadRequest(
-            "Unsupported image type. Must be 'jpeg' or 'png'");
+            "Unsupported image type. Must be 'jpeg', 'png' or 'svg'");
         return {};
     }
 

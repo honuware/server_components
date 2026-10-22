@@ -10,6 +10,7 @@
 #include "endpoints/endpoint_test_helper.h"
 #include "endpoints/web_app.h"
 #include "business_logic/auth/person.h"
+#include "business_logic/images/image_helper.h"
 #include "business_logic/auth/server_config.h"
 #include "business_logic/auth/cookie_manager_test_util.h"
 #include "db_schema/people.h"
@@ -350,6 +351,96 @@ TEST(UploadPhotoTest, UploadPhotoUnsupportedType) {
         endpointHelper.GetWebApp().GetApp().handle_full(req, resp);
 
         EXPECT_EQ(resp.code, 400);
+    });
+
+    Auth::ServerConfig::Shutdown();
+}
+
+// Finishing website 14.1 — the photo picker sends a vector as "svg", and the
+// endpoint used to refuse it. It now stores it as uploaded, and the page reads
+// it back through the scaled-photo endpoint byte for byte, typed so a browser
+// will draw it.
+TEST(UploadPhotoTest, UploadPhotoSvgReadsBackByteForByte) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UploadPhotoSvg", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+
+        int64_t personId = 0;
+        SetupAdminUser(transaction, testDb, endpointHelper, personId);
+        // The read-back's IsTableAllowed: an admin's tables are the admin lists.
+        endpointHelper.AddAdminTopLevelTable(transaction, DbSchema::kPeopleTable);
+
+        TableHelpers::PhotoSupportTables pst(testDb.GetDatabaseHelper());
+        pst.AddPhotoSupportTable(transaction, "people");
+
+        const std::string svg =
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+            "<!-- exported -->\n"
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 24 24\">"
+            "<path d=\"M4 4h16v16H4z\"/></svg>\n";
+
+        crow::request upload;
+        upload.method = crow::HTTPMethod::Post;
+        upload.url = "/api/upload_photo/people/" + std::to_string(personId)
+            + "/svg";
+        upload.body = svg;
+        crow::response uploadResp;
+        endpointHelper.GetWebApp().GetApp().handle_full(upload, uploadResp);
+
+        ASSERT_EQ(uploadResp.code, 200) << uploadResp.body;
+        Json::Value body = Json::Value::FromText(uploadResp.body);
+        EXPECT_EQ(body["type"].Get<std::string>(), "svg");
+
+        crow::request read;
+        read.method = crow::HTTPMethod::Get;
+        read.url = "/api/get_scaled_photo/people/" + std::to_string(personId)
+            + "/120/120";
+        crow::response readResp;
+        endpointHelper.GetWebApp().GetApp().handle_full(read, readResp);
+
+        ASSERT_EQ(readResp.code, 200) << readResp.body;
+        EXPECT_EQ(readResp.get_header_value("Content-Type"), "image/svg+xml");
+        EXPECT_EQ(readResp.get_header_value("X-Content-Type-Options"), "nosniff");
+        EXPECT_EQ(readResp.body, svg);
+    });
+
+    Auth::ServerConfig::Shutdown();
+}
+
+// A raster labelled "svg" would otherwise be served as image/svg+xml. It is
+// refused, and nothing is stored.
+TEST(UploadPhotoTest, UploadPhotoPngLabelledSvgIsRefused) {
+    Auth::ServerConfig::Shutdown();
+    Auth::ServerConfig::InitializeTestMode();
+
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UploadPhotoPngAsSvg", [&](Transaction& transaction) {
+        EndpointTestHelper endpointHelper(transaction, testDb);
+
+        int64_t personId = 0;
+        SetupAdminUser(transaction, testDb, endpointHelper, personId);
+
+        TableHelpers::PhotoSupportTables pst(testDb.GetDatabaseHelper());
+        pst.AddPhotoSupportTable(transaction, "people");
+
+        const std::string_view png("\x89PNG\r\n\x1a\n\0\0\0\rIHDR", 16);
+
+        crow::request req;
+        req.method = crow::HTTPMethod::Post;
+        req.url = "/api/upload_photo/people/" + std::to_string(personId)
+            + "/svg";
+        req.body = std::string(png);
+        crow::response resp;
+        endpointHelper.GetWebApp().GetApp().handle_full(req, resp);
+
+        EXPECT_EQ(resp.code, 400);
+        EXPECT_NE(resp.body.find("not an SVG document"), std::string::npos)
+            << resp.body;
+        Images::ImageHelper imageHelper(testDb.GetDatabaseHelper());
+        EXPECT_FALSE(imageHelper.HasPhoto(transaction, "people", personId));
     });
 
     Auth::ServerConfig::Shutdown();

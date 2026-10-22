@@ -335,6 +335,81 @@ TEST(ImageHelperTest, UploadStoresAnSvgByteForByte) {
     });
 }
 
+// ---- Finishing website 14.1: an upload labelled "svg" must BE one ----
+
+// What may legally come before the root element, in the shapes real exports
+// produce. The Illustrator head is the studio's own safe-space badge.
+TEST(ImageHelperTest, IsSvgDocumentAcceptsWhatMayPrecedeTheRoot) {
+    EXPECT_TRUE(ImageHelper::IsSvgDocument(MakeTestSvg()));
+    EXPECT_TRUE(ImageHelper::IsSvgDocument(
+        "<svg width=\"351\" height=\"102\" viewBox=\"0 0 351 102\"></svg>"));
+    EXPECT_TRUE(ImageHelper::IsSvgDocument("<svg/>"));
+    EXPECT_TRUE(ImageHelper::IsSvgDocument("<svg>"));
+    EXPECT_TRUE(ImageHelper::IsSvgDocument("\n\t <svg\nviewBox=\"0 0 1 1\"/>"));
+    EXPECT_TRUE(ImageHelper::IsSvgDocument("\xEF\xBB\xBF<svg/>"))
+        << "a UTF-8 byte-order mark";
+    EXPECT_TRUE(ImageHelper::IsSvgDocument(
+        "<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n"
+        "<!-- Generator: Adobe Illustrator 24.2.1, SVG Export Plug-In . "
+        "SVG Version: 6.00 Build 0)  -->\r\n"
+        "<svg version=\"1.1\" id=\"Layer_1\"></svg>"));
+    EXPECT_TRUE(ImageHelper::IsSvgDocument(
+        "<?xml version=\"1.0\"?>\n"
+        "<!DOCTYPE svg PUBLIC \"-//W3C//DTD SVG 1.1//EN\" "
+        "\"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd\">\n<svg/>"));
+    // Illustrator's "with entities" export: the subset's own '>' must not end
+    // the DOCTYPE early.
+    EXPECT_TRUE(ImageHelper::IsSvgDocument(
+        "<!DOCTYPE svg [\n  <!ENTITY ns_svg \"http://www.w3.org/2000/svg\">\n"
+        "  <!ENTITY ns_xlink \"http://www.w3.org/1999/xlink\">\n]>\n<svg/>"));
+}
+
+TEST(ImageHelperTest, IsSvgDocumentRefusesEverythingElse) {
+    EXPECT_FALSE(ImageHelper::IsSvgDocument(""));
+    EXPECT_FALSE(ImageHelper::IsSvgDocument("   \n"));
+    // A PNG's signature, then the start of its header chunk.
+    EXPECT_FALSE(ImageHelper::IsSvgDocument(
+        std::string_view("\x89PNG\r\n\x1a\n\0\0\0\rIHDR", 16)));
+    // A JPEG's start-of-image marker.
+    EXPECT_FALSE(ImageHelper::IsSvgDocument(std::string_view("\xff\xd8\xff\xe0", 4)));
+    // An HTML page with an inline SVG is still an HTML page.
+    EXPECT_FALSE(ImageHelper::IsSvgDocument(
+        "<!DOCTYPE html><html><body><svg/></body></html>"));
+    EXPECT_FALSE(ImageHelper::IsSvgDocument("<html><svg/></html>"));
+    EXPECT_FALSE(ImageHelper::IsSvgDocument("hello <svg/>"));
+    // The element name must be exactly "svg".
+    EXPECT_FALSE(ImageHelper::IsSvgDocument("<svgfoo/>"));
+    EXPECT_FALSE(ImageHelper::IsSvgDocument("<svg"));
+    EXPECT_FALSE(ImageHelper::IsSvgDocument("<SVG/>"));
+    // Constructs that never close leave nothing to find a root after.
+    EXPECT_FALSE(ImageHelper::IsSvgDocument("<!-- unterminated <svg/>"));
+    EXPECT_FALSE(ImageHelper::IsSvgDocument("<?xml version=\"1.0\" <svg/>"));
+    EXPECT_FALSE(ImageHelper::IsSvgDocument("<!DOCTYPE svg [ <!ENTITY a \"b\"> <svg/>"));
+}
+
+// The check is on the upload path itself, so no caller can store a raster
+// under the vector label — it would be served as image/svg+xml.
+TEST(ImageHelperTest, UploadRefusesAPngLabelledSvgAndStoresNothing) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("UploadPngAsSvg", [&](Transaction& transaction) {
+        DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
+        TableHelpers::PhotoSupportTables photoSupportTables(databaseHelper);
+        photoSupportTables.AddPhotoSupportTable(transaction, "people");
+
+        auto secretsHelper = Secrets::Test::MakeTestSecretsHelper();
+        ImageHelper imageHelper(databaseHelper, secretsHelper);
+
+        const std::string_view png("\x89PNG\r\n\x1a\n\0\0\0\rIHDR", 16);
+        const std::vector<char> bytes(png.begin(), png.end());
+        UploadResult result = imageHelper.UploadAndAssociatePhoto(
+            transaction, "people", 1, bytes, "svg");
+
+        EXPECT_FALSE(result.success);
+        EXPECT_EQ(result.errorMessage, "The file is not an SVG document");
+        EXPECT_FALSE(imageHelper.HasPhoto(transaction, "people", 1));
+    });
+}
+
 TEST(ImageHelperTest, ScalingAnSvgReturnsTheSourceAndCachesNothing) {
     TestDatabaseUtil testDb;
     testDb.RunInTransaction("ScaleSvg", [&](Transaction& transaction) {
