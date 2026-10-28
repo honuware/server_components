@@ -156,6 +156,13 @@ std::string GenerateImpl(
         << "PRODID:" << config.prodId << "\r\n"
         << "CALSCALE:GREGORIAN\r\n"
         << "METHOD:PUBLISH\r\n";
+    if (!config.calendarName.empty()) {
+        oss << "X-WR-CALNAME:" << EscapeICalText(config.calendarName) << "\r\n";
+    }
+    if (!config.refreshInterval.empty()) {
+        oss << "REFRESH-INTERVAL;VALUE=DURATION:" << config.refreshInterval << "\r\n"
+            << "X-PUBLISHED-TTL:" << config.refreshInterval << "\r\n";
+    }
     for (const auto& event : events) {
         EmitVEvent(event, oss, config.uidDomain);
     }

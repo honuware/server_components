@@ -452,6 +452,72 @@ TEST(ICalGeneratorTest, ProdIdAndUidDomainComeFromConfig) {
     EXPECT_EQ(ical.find("test.example"), std::string::npos) << ical;
 }
 
+// A subscribed calendar is labelled by X-WR-CALNAME. It's a calendar
+// property, so it sits in the header, before any VEVENT, and it's escaped text.
+TEST(ICalGeneratorTest, EmitsCalendarNameWhenSet) {
+    ICalEvent event;
+    event.title = "Class";
+    event.startTimeUs = kJan1_2026_17_00_UTC;
+    event.endTimeUs = kJan1_2026_18_30_UTC;
+    event.uid = "session-1@test.example";
+
+    ICalConfig named = kTestConfig;
+    named.calendarName = "Test Studio: yoga, pilates";
+    std::string ical = GenerateICalendar(std::vector<ICalEvent>{event}, named);
+
+    size_t nameLine = ical.find("X-WR-CALNAME:Test Studio: yoga\\, pilates\r\n");
+    ASSERT_NE(nameLine, std::string::npos) << ical;
+    EXPECT_LT(nameLine, ical.find("BEGIN:VEVENT"));
+    // An empty calendar is still named.
+    std::string empty = GenerateICalendar(std::vector<ICalEvent>{}, named);
+    EXPECT_NE(empty.find("X-WR-CALNAME:"), std::string::npos) << empty;
+}
+
+TEST(ICalGeneratorTest, OmitsCalendarNameWhenEmpty) {
+    ICalEvent event;
+    event.title = "Class";
+    event.startTimeUs = kJan1_2026_17_00_UTC;
+    event.endTimeUs = kJan1_2026_18_30_UTC;
+
+    // The two-field config (every pre-existing caller) leaves it empty.
+    std::string ical = Gen(event);
+
+    EXPECT_EQ(ical.find("X-WR-CALNAME"), std::string::npos) << ical;
+}
+
+// The refresh hint goes in the file, in both spellings, as calendar properties
+// ahead of any VEVENT.
+TEST(ICalGeneratorTest, EmitsRefreshIntervalWhenSet) {
+    ICalEvent event;
+    event.title = "Class";
+    event.startTimeUs = kJan1_2026_17_00_UTC;
+    event.endTimeUs = kJan1_2026_18_30_UTC;
+    event.uid = "session-1@test.example";
+
+    ICalConfig feed = kTestConfig;
+    feed.refreshInterval = "PT1H";
+    std::string ical = GenerateICalendar(std::vector<ICalEvent>{event}, feed);
+
+    size_t standard = ical.find("REFRESH-INTERVAL;VALUE=DURATION:PT1H\r\n");
+    size_t outlook = ical.find("X-PUBLISHED-TTL:PT1H\r\n");
+    ASSERT_NE(standard, std::string::npos) << ical;
+    ASSERT_NE(outlook, std::string::npos) << ical;
+    EXPECT_LT(standard, ical.find("BEGIN:VEVENT"));
+    EXPECT_LT(outlook, ical.find("BEGIN:VEVENT"));
+}
+
+TEST(ICalGeneratorTest, OmitsRefreshIntervalWhenEmpty) {
+    ICalEvent event;
+    event.title = "Class";
+    event.startTimeUs = kJan1_2026_17_00_UTC;
+    event.endTimeUs = kJan1_2026_18_30_UTC;
+
+    std::string ical = Gen(event);
+
+    EXPECT_EQ(ical.find("REFRESH-INTERVAL"), std::string::npos) << ical;
+    EXPECT_EQ(ical.find("X-PUBLISHED-TTL"), std::string::npos) << ical;
+}
+
 TEST(BuildUidTest, UidDomainIsCallerSupplied) {
     EXPECT_EQ(BuildBookingUid(1, "acme.example"), "booking-1@acme.example");
     EXPECT_EQ(BuildSessionUid(1, "studio.test"), "session-1@studio.test");

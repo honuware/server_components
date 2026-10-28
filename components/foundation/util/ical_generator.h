@@ -13,10 +13,22 @@ namespace ICalGenerator {
 //   - `prodId`    : the RFC 5545 PRODID value, e.g. "-//Acme//Booking//EN".
 //   - `uidDomain` : the right-hand side of every generated UID ("id@domain"),
 //                   e.g. "acme.example"; also names the synthetic-UID fallback.
+//   - `calendarName` : optional; the name a calendar app gives a subscription
+//                   (X-WR-CALNAME), e.g. "Acme classes". Empty omits the line,
+//                   and the app falls back to the feed's URL. It names one
+//                   document, so a feed copies its app's config and sets it.
+//   - `refreshInterval` : optional; how often a subscribing app should re-read
+//                   a feed, as an RFC 5545 duration, e.g. "PT1H". Written as
+//                   REFRESH-INTERVAL (RFC 7986) and X-PUBLISHED-TTL (the older
+//                   form Outlook reads). Apps read these only from the file, not
+//                   from HTTP headers, and some (Google) ignore them entirely.
+//                   Empty omits both. Per document, like `calendarName`.
 // Knotty Yoga's values are supplied app-side (see business_logic/app_ical_config.h).
 struct ICalConfig {
     std::string prodId;
     std::string uidDomain;
+    std::string calendarName;
+    std::string refreshInterval;
 };
 
 // Classes Phase 4: additive RFC 5545 extensions. All new fields are optional
