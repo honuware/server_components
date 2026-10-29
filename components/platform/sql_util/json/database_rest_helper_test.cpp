@@ -1980,6 +1980,55 @@ namespace
         });
     }
 
+    TEST(DatabaseRestHelperTest, UpdateTableValueEmptyStringKeptForNotNullText)
+    {
+        TestDatabaseUtil testDb;
+        testDb.RunInTransaction("UpdateTableValueEmptyStringKeptForNotNullText",
+            [&](Transaction& transaction) {
+
+            DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
+            DatabaseRESTHelper helper(databaseHelper);
+
+            // people.last_name is a NOT NULL text column: writing NULL would
+            // violate the constraint, so the empty string must be kept.
+            // locked_until (nullable BIGINT) in the same update still becomes
+            // NULL.
+            KeyValueTable insertRow = {
+                {std::string(DbSchema::kPeopleEmail), "blank@example.com"},
+                {std::string(DbSchema::kPeopleFirstName), "Blank"},
+                {std::string(DbSchema::kPeopleLastName), "Surname"},
+                {std::string(DbSchema::kPeoplePasswordHash), "hash"},
+                {std::string(DbSchema::kPeopleLockedUntil), "2000000"},
+            };
+            int64_t personId = DbCrud::AddRowToTableFetchInt64PrimaryKey(
+                transaction, databaseHelper,
+                DbSchema::kPeopleTable, insertRow);
+            std::string personIdStr = std::to_string(personId);
+
+            Json::Value updateJson(Json::JsonObject{
+                {std::string(DbSchema::kPeopleLastName), ""},
+                {std::string(DbSchema::kPeopleLockedUntil), ""},
+            });
+
+            helper.UpdateTableValue(
+                transaction,
+                testDb.GetDatabaseInfo(),
+                DbSchema::kPeopleTable,
+                DbSchema::kPeopleId,
+                personIdStr,
+                updateJson);
+
+            std::string sql =
+                "SELECT (" + std::string(DbSchema::kPeopleLastName) +
+                " = '')::TEXT || ',' || (" +
+                std::string(DbSchema::kPeopleLockedUntil) +
+                " IS NULL)::TEXT FROM " + std::string(DbSchema::kPeopleTable) +
+                " WHERE " + std::string(DbSchema::kPeopleId) + " = " +
+                personIdStr;
+            EXPECT_EQ(transaction.RunSqlStatementReturningOneValue(sql), "true,true");
+        });
+    }
+
     // ------------------------------------------------------------------
     // Phase 3.8 of the security review: column-level redact map.
     //

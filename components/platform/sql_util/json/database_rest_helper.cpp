@@ -33,6 +33,16 @@ namespace {
         return stringSet;
     }
 
+    // A NOT NULL text column refuses NULL, so an empty string is the only
+    // way to clear it: UpdateTableValue writes it as-is instead of as NULL.
+    bool KeepsEmptyString(const DbSchema::ColumnInfo& columnInfo) {
+        if (columnInfo.IsNullable()) {
+            return false;
+        }
+        DatabaseTypes databaseType = columnInfo.GetDatabaseType();
+        return databaseType == DB_TYPE_STRING || databaseType == DB_TYPE_CITEXT;
+    }
+
     KeyValueTable KeyValueTableFromJsonValue(
         const DbSchema::DatabaseInfo& databaseInfo,
         std::string_view tableName,
@@ -510,9 +520,12 @@ void DatabaseRESTHelper::UpdateTableValue(
     // Separate empty string values — these should become SQL NULL.
     // Empty strings cannot be cast to non-text types (BIGINT, etc.)
     // and generally represent "no value" intent from the client.
+    // A NOT NULL text column keeps its empty string (KeepsEmptyString).
+    const DbSchema::TableInfo& tableInfo = databaseInfo.GetTableInfo(tableName);
     StringArray nullColumns;
     for (auto it = keyValueTable.begin(); it != keyValueTable.end(); ) {
-        if (it->second.empty()) {
+        if (it->second.empty() &&
+            !KeepsEmptyString(tableInfo.GetColumn(it->first))) {
             nullColumns.push_back(it->first);
             it = keyValueTable.erase(it);
         } else {
