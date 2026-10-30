@@ -1,9 +1,14 @@
 #include "framework_migrations.h"
 
 #include <string>
+#include <string_view>
+#include <utility>
 
+#include "db_schema/admin_column_data_info.h"
 #include "db_schema/make_framework_tables.h"
 #include "db_schema/password_reset_tokens.h"
+#include "db_schema/role_assignments.h"
+#include "db_schema/role_permissions.h"
 #include "db_schema/site_assets.h"
 #include "migration_namespace.h"
 #include "sql_util/database_access/database_metadata.h"
@@ -88,6 +93,33 @@ std::vector<Migration> BuildFrameworkMigrations() {
                 DbOps::CreateTable(
                     transaction, databaseInfo,
                     DbSchema::kPasswordResetTokensTable);
+            },
+        },
+        // Finishing website Phase 20.5 — the CRUD editor's New Role Assignments
+        // form had no fields. The seed marked these three foreign keys
+        // read-only, and the editor hides a read-only column on New and never
+        // sends it. The seed no longer sets the flag; this clears it on a
+        // database seeded before that. Only an UPDATE, so a fresh database (no
+        // flag to clear) and a second run both change nothing.
+        Migration{
+            NamespacedMigrationId(kFrameworkMigrationNamespace,
+                                  "0003_role_pickers"),
+            [](Transaction& transaction) {
+                const std::string sql =
+                    "UPDATE " + std::string(DbSchema::kAdminColumnDataInfoTable)
+                    + " SET " + std::string(DbSchema::kAdminColumnDataInfoReadonly)
+                    + " = NULL WHERE "
+                    + std::string(DbSchema::kAdminColumnDataInfoTableName) + " = $1 AND "
+                    + std::string(DbSchema::kAdminColumnDataInfoColumnName) + " = $2";
+                const std::pair<std::string_view, std::string_view> columns[] = {
+                    { DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsPersonId },
+                    { DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsRoleId },
+                    { DbSchema::kRolePermissionsTable, DbSchema::kRolePermissionsRoleId },
+                };
+                for (const auto& [table, column] : columns) {
+                    transaction.RunSqlStatement(
+                        sql, std::string(table), std::string(column));
+                }
             },
         },
     };

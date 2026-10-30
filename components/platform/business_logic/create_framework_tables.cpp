@@ -311,10 +311,15 @@ void PopulateFrameworkTables(
         AddRow(DbSchema::kPermissionsTable, DbSchema::kPermissionsDescription, "Description", "Permission description", "text", "true");
         AddRow(DbSchema::kRolesTable, DbSchema::kRolesName, "Name", "Role name", "text", "true");
         AddRow(DbSchema::kRolesTable, DbSchema::kRolesDescription, "Description", "Role description", "text", "true");
-        AddRow(DbSchema::kRolePermissionsTable, DbSchema::kRolePermissionsRoleId, "Role", "Role to assign permission to", "number", "true", "", "true");
+        // Finishing website Phase 20.5: these three foreign keys used to be
+        // marked read-only. To the CRUD editor read-only means "the server fills
+        // this in" (like a Created date), so its New form hid them and never
+        // sent them: New Role Assignments had no fields at all. Framework
+        // migration 0003_role_pickers clears the flag on older databases.
+        AddRow(DbSchema::kRolePermissionsTable, DbSchema::kRolePermissionsRoleId, "Role", "Role to assign permission to", "number", "true");
         AddRow(DbSchema::kRolePermissionsTable, DbSchema::kRolePermissionsPermissionId, "Permission", "Permission to assign", "number", "true");
-        AddRow(DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsPersonId, "Person", "Person assigned to role", "number", "true", "", "true");
-        AddRow(DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsRoleId, "Role", "Role assigned", "number", "true", "", "true");
+        AddRow(DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsPersonId, "Person", "Person assigned to role", "number", "true");
+        AddRow(DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsRoleId, "Role", "Role assigned", "number", "true");
     }
 
     // --- Admin column friendly names (framework) -----------------------------

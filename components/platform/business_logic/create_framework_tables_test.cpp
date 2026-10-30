@@ -3,17 +3,23 @@
 #include <algorithm>
 #include <set>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include <gtest/gtest.h>
 
+#include "db_schema/admin_column_data_info.h"
 #include "db_schema/make_framework_tables.h"
 #include "db_schema/password_reset_tokens.h"
 #include "db_schema/people.h"
 #include "db_schema/site_assets.h"
 #include "db_schema/permission_implications.h"
 #include "db_schema/permissions.h"
+#include "db_schema/role_assignments.h"
+#include "db_schema/role_permissions.h"
 #include "db_schema/roles.h"
 #include "sql_util/schema/database_info.h"
+#include "sql_util/table_helpers/admin_column_data_info.h"
 #include "sql_util/table_helpers/permissions.h"
 #include "sql_util/table_helpers/roles.h"
 #include "test/src/util/database_test_helper.h"
@@ -261,6 +267,38 @@ TEST(CreateFrameworkTablesTest, PopulateFrameworkTablesSeedsTimestampDisplayMeta
             EXPECT_EQ(friendlyName(DbSchema::kPeopleEmailVerifiedAt), "Email Verified");
             EXPECT_EQ(friendlyName(DbSchema::kPeopleCreatedAt), "Created");
             EXPECT_EQ(friendlyName(DbSchema::kPeopleUpdatedAt), "Updated");
+        });
+}
+
+// Finishing website Phase 20.5: the CRUD editor hides a read-only column on its
+// New form and never sends it, so read-only foreign keys left New Role
+// Assignments with no fields. Read back through the helper /api/get_db_schema
+// reads, which turns an empty flag into "readonly": "f".
+TEST(CreateFrameworkTablesTest, TheRoleForeignKeysAreEditableOnTheNewForm) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction(
+        "TheRoleForeignKeysAreEditableOnTheNewForm", [&](Transaction& transaction) {
+            DbSchema::DatabaseInfo info("framework_test");
+            PopulateFrameworkTables(transaction, testDb.GetDatabaseHelper(), info);
+
+            TableHelpers::AdminColumnDataInfo dataInfo(testDb.GetDatabaseHelper());
+            const std::pair<std::string_view, std::string_view> columns[] = {
+                { DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsPersonId },
+                { DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsRoleId },
+                { DbSchema::kRolePermissionsTable, DbSchema::kRolePermissionsRoleId },
+            };
+            for (const auto& [table, column] : columns) {
+                KeyValueTable row;
+                ASSERT_TRUE(dataInfo.GetAdminColumnDataInfo(transaction, table, column, row))
+                    << table << "." << column << " has no column data-info row";
+                const std::string readonly =
+                    row[std::string(DbSchema::kAdminColumnDataInfoReadonly)];
+                EXPECT_TRUE(readonly.empty() || readonly == "f")
+                    << table << "." << column << " is read-only: " << readonly;
+                // Still required, so Create refuses an empty pick.
+                EXPECT_EQ(row[std::string(DbSchema::kAdminColumnDataInfoRequired)], "t")
+                    << table << "." << column;
+            }
         });
 }
 

@@ -14,11 +14,11 @@ namespace Migration {
 // it can never collide with an app migration. It is applied *before* the app
 // stream — see BuildAllMigrations.
 //
-// **Currently empty** — the fresh-install framework schema is built by
-// MakeDatabaseInfo + CreateTables; framework migrations are added here only to
-// evolve honuware's tables between released versions. When you add one:
-//   1. Pick the next framework local id ("0001_...", "0002_...").
-//   2. Append `{ NamespacedMigrationId(kFrameworkMigrationNamespace, "0001_..."), apply }`.
+// The fresh-install framework schema is built by MakeDatabaseInfo +
+// CreateTables; framework migrations are added here only to evolve honuware's
+// tables (and seeded rows) between released versions. When you add one:
+//   1. Pick the next framework local id ("0004_...", "0005_...").
+//   2. Append `{ NamespacedMigrationId(kFrameworkMigrationNamespace, "0004_..."), apply }`.
 std::vector<Migration> BuildFrameworkMigrations();
 
 }  // namespace Migration

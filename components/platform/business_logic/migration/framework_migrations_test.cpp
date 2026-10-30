@@ -2,15 +2,24 @@
 
 #include <set>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
 
+#include "business_logic/create_framework_tables.h"
+#include "db_schema/admin_column_data_info.h"
 #include "db_schema/password_reset_tokens.h"
+#include "db_schema/people.h"
+#include "db_schema/role_assignments.h"
+#include "db_schema/role_permissions.h"
 #include "db_schema/site_assets.h"
 #include "migration_namespace.h"
 #include "migration_runner.h"
 #include "sql_util/database_access/db_and_table_operations.h"
+#include "sql_util/schema/database_info.h"
+#include "sql_util/table_helpers/admin_column_data_info.h"
 #include "sql_util/table_helpers/password_reset_tokens.h"
 #include "sql_util/table_helpers/people.h"
 #include "sql_util/table_helpers/site_assets.h"
@@ -106,6 +115,66 @@ TEST(FrameworkMigrationsTest, PasswordResetTokensMigrationCreatesTheTable) {
 
         // And a second run (the next deploy) leaves it alone.
         EXPECT_NO_THROW(passwordReset->apply(transaction));
+    });
+}
+
+// Finishing website Phase 20.5: a database seeded before the fix still has the
+// three role foreign keys marked read-only, which hides them on the CRUD
+// editor's New form. Read through the helper /api/get_db_schema reads.
+TEST(FrameworkMigrationsTest, RolePickersMigrationClearsTheReadOnlyFlags) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("RolePickersMigration", [&](Transaction& transaction) {
+        DbSchema::DatabaseInfo info("framework_test");
+        PopulateFrameworkTables(transaction, testDb.GetDatabaseHelper(), info);
+
+        const std::pair<std::string_view, std::string_view> roleColumns[] = {
+            { DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsPersonId },
+            { DbSchema::kRoleAssignmentsTable, DbSchema::kRoleAssignmentsRoleId },
+            { DbSchema::kRolePermissionsTable, DbSchema::kRolePermissionsRoleId },
+        };
+        // Put the old seed's flags back, as on a database installed before it.
+        for (const auto& [table, column] : roleColumns) {
+            transaction.RunSqlStatement(
+                "UPDATE admin_column_data_info SET readonly = true "
+                "WHERE table_name = $1 AND column_name = $2",
+                std::string(table), std::string(column));
+        }
+
+        TableHelpers::AdminColumnDataInfo dataInfo(testDb.GetDatabaseHelper());
+        auto readonlyOf = [&](std::string_view table, std::string_view column) {
+            KeyValueTable row;
+            EXPECT_TRUE(dataInfo.GetAdminColumnDataInfo(transaction, table, column, row))
+                << table << "." << column;
+            return row[std::string(DbSchema::kAdminColumnDataInfoReadonly)];
+        };
+        for (const auto& [table, column] : roleColumns) {
+            ASSERT_EQ(readonlyOf(table, column), "t") << table << "." << column;
+        }
+
+        const std::vector<Migration> migrations = BuildFrameworkMigrations();
+        const Migration* rolePickers = nullptr;
+        for (const Migration& migration : migrations) {
+            if (migration.id == NamespacedMigrationId(
+                    kFrameworkMigrationNamespace, "0003_role_pickers")) {
+                rolePickers = &migration;
+            }
+        }
+        ASSERT_NE(rolePickers, nullptr)
+            << "the role_pickers migration is missing from the chain";
+
+        rolePickers->apply(transaction);
+
+        for (const auto& [table, column] : roleColumns) {
+            const std::string readonly = readonlyOf(table, column);
+            EXPECT_TRUE(readonly.empty() || readonly == "f")
+                << table << "." << column << " is still read-only";
+        }
+        // A column that really is read-only keeps its flag.
+        EXPECT_EQ(readonlyOf(DbSchema::kPeopleTable, DbSchema::kPeopleCreatedAt), "t");
+
+        // And a second run (the next deploy) changes nothing.
+        EXPECT_NO_THROW(rolePickers->apply(transaction));
+        EXPECT_EQ(readonlyOf(DbSchema::kPeopleTable, DbSchema::kPeopleCreatedAt), "t");
     });
 }
 
