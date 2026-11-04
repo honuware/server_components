@@ -44,6 +44,12 @@
 // Phase 0.2b (H8): register + get_scaled_photo (with framework seams).
 #include "endpoints/register.h"
 #include "endpoints/get_scaled_photo.h"
+// H13: the scheduled jobs every site runs.
+#include "endpoints/admin_cleanup_expired_tokens.h"
+#include "endpoints/admin_cleanup_login_attempts.h"
+#include "endpoints/admin_cleanup_scaled_photos.h"
+#include "endpoints/admin_cleanup_idempotency_keys.h"
+#include "endpoints/admin_notify_admin_alerts.h"
 
 namespace Endpoints {
 
@@ -129,6 +135,13 @@ void RegisterFrameworkEndpoints() {
     // Phase 0.2b (H8): register + get_scaled_photo.
     anchor = reinterpret_cast<AnchorFunc>(&Register);
     anchor = reinterpret_cast<AnchorFunc>(&GetScaledPhoto);
+
+    // H13: the scheduled jobs every site runs.
+    anchor = reinterpret_cast<AnchorFunc>(&PostAdminCleanupExpiredTokens);
+    anchor = reinterpret_cast<AnchorFunc>(&PostAdminCleanupLoginAttempts);
+    anchor = reinterpret_cast<AnchorFunc>(&PostAdminCleanupScaledPhotos);
+    anchor = reinterpret_cast<AnchorFunc>(&PostAdminCleanupIdempotencyKeys);
+    anchor = reinterpret_cast<AnchorFunc>(&PostAdminNotifyAdminAlerts);
 }
 
 }  // namespace Endpoints

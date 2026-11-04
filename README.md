@@ -501,7 +501,8 @@ consumers built so far). Each step names the seam it plugs into:
    `CreateFrameworkTables(transaction, databaseInfo)` then
    `PopulateFrameworkTables(transaction, databaseHelper, databaseInfo)` (the
    framework half — 32 tables + their indexes, and the framework seed: base
-   Administrator/User roles, `admin_portal`/`staff_access` permissions + grants,
+   Administrator/User roles, `admin_portal`/`staff_access`/`run_scheduled_jobs`
+   permissions + grants,
    framework `config_secrets` defaults, `permission_implications` allow-list,
    `people` photo support, security redactions, and the framework tables' admin
    metadata). Then create + seed **only your app tables**. Because the framework
@@ -510,10 +511,14 @@ consumers built so far). Each step names the seam it plugs into:
    hard-coded id. Framework enum metadata (`admin_enums` / `admin_column_enums`)
    is *not* seeded for you; seed it app-side if your framework tables expose
    admin enum columns. Provision a scheduler service account app-side via
-   `Auth::EnsureSchedulerServiceAccount` if you run the scheduler.
+   `Auth::EnsureSchedulerServiceAccount` if you run the scheduler: its role
+   always holds `run_scheduled_jobs`, plus any app permissions you name.
 4. **Register + anchor endpoints.** Call `RegisterFrameworkEndpoints()` for the
-   generic auth / account / photo / CRUD / health routes, then register your app
-   endpoints. Endpoints self-register at file scope, so **anchor** each app
+   generic auth / account / photo / CRUD / health routes and the scheduled jobs
+   every site runs (`/api/admin/cleanup_expired_tokens`, `cleanup_login_attempts`,
+   `cleanup_scaled_photos`, `cleanup_idempotency_keys`, `notify_admin_alerts`,
+   gated on `run_scheduled_jobs`), then register your app endpoints. Your own
+   job endpoints can share their handler (`endpoints/scheduled_job_handler.h`). Endpoints self-register at file scope, so **anchor** each app
    endpoint translation unit through the volatile-anchor pattern — a plain unused
    pointer dead-strips at `-O2` and every route 404s in Release.
 5. **Wire the framework seams.** Per-`WebApp` via `WebApp::SetService<T>()`:

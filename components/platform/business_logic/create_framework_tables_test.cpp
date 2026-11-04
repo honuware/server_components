@@ -106,15 +106,34 @@ TEST(CreateFrameworkTablesTest, PopulateFrameworkTablesSeedsBaseline) {
             EXPECT_FALSE(
                 perms.GetPermission(transaction, DbSchema::kPermissionStaffAccess)
                     .empty());
+            EXPECT_FALSE(
+                perms.GetPermission(transaction, DbSchema::kPermissionRunScheduledJobs)
+                    .empty());
 
-            // Administrator granted exactly the two framework permissions.
+            // Administrator granted exactly the three framework permissions,
+            // run_scheduled_jobs among them (H13: an admin can run a job by
+            // hand).
             int64_t adminRoleId =
                 std::stoll(adminRole.at(std::string(DbSchema::kRolesId)));
             EXPECT_EQ(
                 transaction.RunSqlStatementReturningOneValue(
                     "SELECT count(*) FROM role_permissions WHERE role_id = $1",
                     std::to_string(adminRoleId)),
-                "2");
+                "3");
+            EXPECT_EQ(
+                transaction.RunSqlStatementReturningOneValue(
+                    "SELECT count(*) FROM role_permissions rp "
+                    "JOIN permissions p ON p.id = rp.permission_id "
+                    "WHERE rp.role_id = $1 AND p.name = $2",
+                    std::to_string(adminRoleId),
+                    std::string(DbSchema::kPermissionRunScheduledJobs)),
+                "1");
+            // It gates endpoints, not a table: no CRUD access comes with it.
+            EXPECT_EQ(
+                transaction.RunSqlStatementReturningOneValue(
+                    "SELECT is_pricing_eligible FROM permissions WHERE name = $1",
+                    std::string(DbSchema::kPermissionRunScheduledJobs)),
+                "f");
 
             // permission_implications is on the allow-list.
             EXPECT_EQ(

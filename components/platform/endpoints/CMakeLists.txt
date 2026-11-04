@@ -99,6 +99,20 @@ target_sources(honuware_platform
     public_photo_tables.h
     get_scaled_photo.h
     get_scaled_photo.cpp
+    # H13: the scheduled jobs every site runs, moved up from the apps, and the
+    # handler an app's own job endpoints share with them.
+    scheduled_job_handler.h
+    scheduled_job_handler.cpp
+    admin_cleanup_expired_tokens.h
+    admin_cleanup_expired_tokens.cpp
+    admin_cleanup_login_attempts.h
+    admin_cleanup_login_attempts.cpp
+    admin_cleanup_scaled_photos.h
+    admin_cleanup_scaled_photos.cpp
+    admin_cleanup_idempotency_keys.h
+    admin_cleanup_idempotency_keys.cpp
+    admin_notify_admin_alerts.h
+    admin_notify_admin_alerts.cpp
     register_framework_endpoints.h
     register_framework_endpoints.cpp
 )
@@ -151,6 +165,15 @@ target_sources(${HONUWARE_TESTS_TARGET}
     upload_user_photo_test.cpp
     delete_photo_test.cpp
     get_photo_test.cpp
+    # H13: the scheduled-job endpoints.
+    scheduled_job_test_support.h
+    scheduled_job_test_support.cpp
+    scheduled_job_handler_test.cpp
+    admin_cleanup_expired_tokens_test.cpp
+    admin_cleanup_login_attempts_test.cpp
+    admin_cleanup_scaled_photos_test.cpp
+    admin_cleanup_idempotency_keys_test.cpp
+    admin_notify_admin_alerts_test.cpp
 )
 
 target_link_libraries(${HONUWARE_TESTS_TARGET} PUBLIC ${GTEST_LIB})

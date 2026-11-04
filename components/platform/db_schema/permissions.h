@@ -38,6 +38,14 @@ namespace DbSchema {
     constexpr std::string_view kPermissionViewAdminInstructorLoad =
         "view_admin_instructor_load";
 
+    // H13 — gates the framework's scheduled-job endpoints
+    // (/api/admin/cleanup_* and /api/admin/notify_admin_alerts), and any job
+    // endpoint an app adds. The framework seed creates it and grants it to
+    // Administrator, so an admin can run a job by hand; the scheduler service
+    // account always holds it (EnsureSchedulerServiceAccount). It gates
+    // endpoints, not a table, so it opens nothing in the generic CRUD editor.
+    constexpr std::string_view kPermissionRunScheduledJobs = "run_scheduled_jobs";
+
     // Creates the permissions table
     void MakePermissionsTable(DatabaseInfo databaseInfo);
 

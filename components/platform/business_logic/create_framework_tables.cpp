@@ -183,6 +183,12 @@ void PopulateFrameworkTables(
         AddPermission(DbSchema::kPermissionStaffAccess,
             "Permission to operate staff endpoints (check-in, drop-in "
             "booking, quick account creation, …).");
+        // H13: gates the scheduled-job endpoints. The scheduler service
+        // account holds it (EnsureSchedulerServiceAccount); Administrator
+        // holds it below so a job can be run by hand.
+        AddPermission(DbSchema::kPermissionRunScheduledJobs,
+            "Permission to run the scheduled jobs: the cleanups, the "
+            "admin-alerts digest, and any job the site adds.");
     }
 
     // --- Administrator role -> framework permission grants -------------------
@@ -210,6 +216,8 @@ void PopulateFrameworkTables(
         AddRolePermission(adminRoleId, PermissionId("admin_portal"));
         AddRolePermission(
             adminRoleId, PermissionId(DbSchema::kPermissionStaffAccess));
+        AddRolePermission(
+            adminRoleId, PermissionId(DbSchema::kPermissionRunScheduledJobs));
     }
 
     // --- Allowed tables (framework) ------------------------------------------

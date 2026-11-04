@@ -1,5 +1,6 @@
 #include "service_account.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <stdexcept>
 #include <string>
@@ -72,15 +73,38 @@ private:
     std::string prior_;
 };
 
-// EnsureSchedulerServiceAccount expects the manage_subscriptions permission
-// to already exist (PopulatePermissions does this in production). Tests
-// mirror that prerequisite by inserting the row up front.
-int64_t SeedManageSubscriptionsPermission(
-    Transaction& transaction, DatabaseHelper databaseHelper) {
+// App permissions a test can ask for by name.
+constexpr std::string_view kTestRunJobsPermission = "run_test_jobs";
+constexpr std::string_view kTestReadReportsPermission = "read_test_reports";
+
+int64_t SeedPermission(
+    Transaction& transaction, DatabaseHelper databaseHelper,
+    std::string_view name) {
     TableHelpers::Permissions permissions(databaseHelper);
-    return permissions.AddPermission(
-        transaction, kManageSubscriptionsPermission,
-        "Permission to manage subscriptions, billing, and grace periods.");
+    return permissions.AddPermission(transaction, name, "A test permission.");
+}
+
+// EnsureSchedulerServiceAccount always grants run_scheduled_jobs, which
+// PopulateFrameworkTables seeds in production. The harness doesn't run the
+// seed, so tests add the row up front.
+int64_t SeedRunScheduledJobs(
+    Transaction& transaction, DatabaseHelper databaseHelper) {
+    return SeedPermission(
+        transaction, databaseHelper, DbSchema::kPermissionRunScheduledJobs);
+}
+
+// The scheduler person's permission names, sorted.
+StringArray SchedulerPermissions(
+    Transaction& transaction, DatabaseHelper databaseHelper) {
+    TableHelpers::People people(databaseHelper);
+    int64_t personId = std::stoll(
+        people.LookupPersonByEmail(transaction, kTestSchedulerEmail)
+            .at(std::string(DbSchema::kPeopleId)));
+    PersonHelper personHelper(databaseHelper);
+    StringArray perms = personHelper.GetPermissionsForUser(
+        transaction, personId);
+    std::sort(perms.begin(), perms.end());
+    return perms;
 }
 
 // --- IsServiceAccountEmail ---
@@ -134,9 +158,10 @@ TEST(ServiceAccountTest, EnsureCreatesPersonWithExpectedFields) {
     testDb.RunInTransaction("EnsureCreatesPersonWithExpectedFields",
         [&](Transaction& transaction) {
         DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
-        SeedManageSubscriptionsPermission(transaction, databaseHelper);
+        SeedRunScheduledJobs(transaction, databaseHelper);
 
-        EnsureSchedulerServiceAccount(transaction, databaseHelper, kTestSchedulerEmail, "secret");
+        EnsureSchedulerServiceAccount(
+            transaction, databaseHelper, kTestSchedulerEmail, "secret", {});
 
         TableHelpers::People people(databaseHelper);
         KeyValueTable row = people.LookupPersonByEmail(
@@ -161,162 +186,185 @@ TEST(ServiceAccountTest, EnsureCreatesPersonWithExpectedFields) {
     });
 }
 
-TEST(ServiceAccountTest, EnsureGrantsManageSubscriptionsViaSchedulerRole) {
+// No app permissions: the role holds run_scheduled_jobs alone, which is all
+// the framework's job endpoints check.
+TEST(ServiceAccountTest, EnsureWithNoAppPermissionsGrantsOnlyRunScheduledJobs) {
     TestDatabaseUtil testDb;
-    testDb.RunInTransaction("EnsureGrantsManageSubscriptionsViaSchedulerRole",
+    testDb.RunInTransaction("EnsureWithNoAppPermissionsGrantsOnlyRunScheduledJobs",
         [&](Transaction& transaction) {
         DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
-        SeedManageSubscriptionsPermission(transaction, databaseHelper);
+        SeedRunScheduledJobs(transaction, databaseHelper);
+        // Present but not named, so not granted.
+        SeedPermission(transaction, databaseHelper, kTestRunJobsPermission);
 
-        EnsureSchedulerServiceAccount(transaction, databaseHelper, kTestSchedulerEmail, "secret");
+        EnsureSchedulerServiceAccount(
+            transaction, databaseHelper, kTestSchedulerEmail, "secret", {});
 
-        // The "scheduler" role exists and links to manage_subscriptions.
+        EXPECT_EQ(SchedulerPermissions(transaction, databaseHelper),
+                  StringArray({std::string(DbSchema::kPermissionRunScheduledJobs)}));
         TableHelpers::Roles roles(databaseHelper);
-        KeyValueTable roleRow = roles.GetRole(transaction, kSchedulerRoleName);
-        ASSERT_FALSE(roleRow.empty());
-
-        // The scheduler person has the manage_subscriptions permission.
-        TableHelpers::People people(databaseHelper);
-        int64_t personId = std::stoll(
-            people.LookupPersonByEmail(
-                transaction, kTestSchedulerEmail)
-                .at(std::string(DbSchema::kPeopleId)));
-
-        PersonHelper personHelper(databaseHelper);
-        StringArray perms = personHelper.GetPermissionsForUser(
-            transaction, personId);
-        bool hasManageSubscriptions = false;
-        for (const auto& p : perms) {
-            if (p == kManageSubscriptionsPermission) {
-                hasManageSubscriptions = true;
-                break;
-            }
-        }
-        EXPECT_TRUE(hasManageSubscriptions)
-            << "scheduler service account should have manage_subscriptions";
+        EXPECT_EQ(roles.GetRole(transaction, kSchedulerRoleName)
+                      .at(std::string(DbSchema::kRolesDescription)),
+                  std::string(kSchedulerRoleDescription));
+        EXPECT_EQ(transaction.RunSqlStatementReturningOneValue(
+                      "SELECT r.name FROM role_assignments ra "
+                      "JOIN roles r ON r.id = ra.role_id "
+                      "JOIN people p ON p.id = ra.person_id WHERE p.email = $1",
+                      std::string(kTestSchedulerEmail)),
+                  std::string(kSchedulerRoleName));
     });
 }
 
-// Classes Phase 11 §6: the scheduler runs the class crons, which gate on
-// manage_class_schedule — Ensure grants it when the permission is seeded.
-TEST(ServiceAccountTest, EnsureGrantsManageClassScheduleWhenSeeded) {
+TEST(ServiceAccountTest, EnsureWithAnAppPermissionGrantsItAlongsideRunScheduledJobs) {
     TestDatabaseUtil testDb;
-    testDb.RunInTransaction("EnsureGrantsManageClassSchedule",
+    testDb.RunInTransaction("EnsureWithAnAppPermission",
         [&](Transaction& transaction) {
         DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
-        SeedManageSubscriptionsPermission(transaction, databaseHelper);
-        TableHelpers::Permissions permissions(databaseHelper);
-        permissions.AddPermission(
-            transaction, DbSchema::kPermissionManageClassSchedule,
-            "Permission to manage class schedules.");
+        SeedRunScheduledJobs(transaction, databaseHelper);
+        SeedPermission(transaction, databaseHelper, kTestRunJobsPermission);
+        SeedPermission(transaction, databaseHelper, kTestReadReportsPermission);
 
-        EnsureSchedulerServiceAccount(transaction, databaseHelper, kTestSchedulerEmail, "secret");
+        EnsureSchedulerServiceAccount(
+            transaction, databaseHelper, kTestSchedulerEmail, "secret",
+            {kTestRunJobsPermission});
 
-        TableHelpers::People people(databaseHelper);
-        int64_t personId = std::stoll(
-            people.LookupPersonByEmail(
-                transaction, kTestSchedulerEmail)
-                .at(std::string(DbSchema::kPeopleId)));
-        PersonHelper personHelper(databaseHelper);
-        StringArray perms = personHelper.GetPermissionsForUser(
-            transaction, personId);
-
-        bool hasManageClassSchedule = false;
-        bool hasManageSubscriptions = false;
-        for (const auto& p : perms) {
-            if (p == DbSchema::kPermissionManageClassSchedule) {
-                hasManageClassSchedule = true;
-            }
-            if (p == kManageSubscriptionsPermission) {
-                hasManageSubscriptions = true;
-            }
-        }
-        EXPECT_TRUE(hasManageClassSchedule)
-            << "scheduler should hold manage_class_schedule for the class crons";
-        // The original manage_subscriptions grant is unaffected.
-        EXPECT_TRUE(hasManageSubscriptions);
+        EXPECT_EQ(SchedulerPermissions(transaction, databaseHelper),
+                  StringArray({std::string(DbSchema::kPermissionRunScheduledJobs),
+                               std::string(kTestRunJobsPermission)}));
     });
 }
 
-// Ensure still succeeds (and grants manage_subscriptions) when
-// manage_class_schedule isn't seeded — the grant is best-effort so the auth
-// unit tests that seed only manage_subscriptions are unaffected.
-TEST(ServiceAccountTest, EnsureSucceedsWithoutManageClassScheduleSeeded) {
+TEST(ServiceAccountTest, EnsureWithTwoAppPermissionsGrantsBoth) {
     TestDatabaseUtil testDb;
-    testDb.RunInTransaction("EnsureNoClassScheduleSeed",
+    testDb.RunInTransaction("EnsureWithTwoAppPermissionsGrantsBoth",
         [&](Transaction& transaction) {
         DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
-        SeedManageSubscriptionsPermission(transaction, databaseHelper);
+        SeedRunScheduledJobs(transaction, databaseHelper);
+        SeedPermission(transaction, databaseHelper, kTestRunJobsPermission);
+        SeedPermission(transaction, databaseHelper, kTestReadReportsPermission);
 
-        EXPECT_NO_THROW(
-            EnsureSchedulerServiceAccount(transaction, databaseHelper, kTestSchedulerEmail, "secret"));
+        EnsureSchedulerServiceAccount(
+            transaction, databaseHelper, kTestSchedulerEmail, "secret",
+            {kTestRunJobsPermission, kTestReadReportsPermission});
 
-        TableHelpers::People people(databaseHelper);
-        int64_t personId = std::stoll(
-            people.LookupPersonByEmail(
-                transaction, kTestSchedulerEmail)
-                .at(std::string(DbSchema::kPeopleId)));
-        PersonHelper personHelper(databaseHelper);
-        StringArray perms = personHelper.GetPermissionsForUser(
-            transaction, personId);
-        bool hasManageSubscriptions = false;
-        for (const auto& p : perms) {
-            if (p == kManageSubscriptionsPermission) hasManageSubscriptions = true;
-        }
-        EXPECT_TRUE(hasManageSubscriptions);
+        EXPECT_EQ(SchedulerPermissions(transaction, databaseHelper),
+                  StringArray({std::string(kTestReadReportsPermission),
+                               std::string(DbSchema::kPermissionRunScheduledJobs),
+                               std::string(kTestRunJobsPermission)}));
     });
 }
 
-TEST(ServiceAccountTest, EnsureIsIdempotent) {
+// Two calls back to back: one row, the first password, the same grants.
+// Operators rotate by deleting the row first.
+TEST(ServiceAccountTest, EnsureIsIdempotentAndKeepsTheFirstPassword) {
     TestDatabaseUtil testDb;
-    testDb.RunInTransaction("EnsureIsIdempotent",
+    testDb.RunInTransaction("EnsureIsIdempotentAndKeepsTheFirstPassword",
         [&](Transaction& transaction) {
         DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
-        SeedManageSubscriptionsPermission(transaction, databaseHelper);
+        SeedRunScheduledJobs(transaction, databaseHelper);
+        SeedPermission(transaction, databaseHelper, kTestRunJobsPermission);
 
-        // Two calls back-to-back must not throw and must not duplicate the
-        // row.
-        EnsureSchedulerServiceAccount(transaction, databaseHelper, kTestSchedulerEmail, "secret");
-        EnsureSchedulerServiceAccount(transaction, databaseHelper, kTestSchedulerEmail, "secret");
+        EnsureSchedulerServiceAccount(
+            transaction, databaseHelper, kTestSchedulerEmail, "first",
+            {kTestRunJobsPermission});
+        EnsureSchedulerServiceAccount(
+            transaction, databaseHelper, kTestSchedulerEmail, "second",
+            {kTestRunJobsPermission});
 
-        // Exactly one row with the service-account email exists.
-        std::string count = transaction.RunSqlStatementReturningOneValue(
-            "SELECT COUNT(*) FROM people WHERE email = $1",
-            std::string(kTestSchedulerEmail));
-        EXPECT_EQ(count, "1");
-    });
-}
-
-TEST(ServiceAccountTest, EnsureSecondCallDoesNotOverwritePassword) {
-    TestDatabaseUtil testDb;
-    testDb.RunInTransaction("EnsureSecondCallDoesNotOverwritePassword",
-        [&](Transaction& transaction) {
-        DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
-        SeedManageSubscriptionsPermission(transaction, databaseHelper);
-
-        EnsureSchedulerServiceAccount(transaction, databaseHelper, kTestSchedulerEmail, "first");
-        // Idempotent: second call with a different password is a no-op.
-        // Operators rotate by deleting the row first.
-        EnsureSchedulerServiceAccount(transaction, databaseHelper, kTestSchedulerEmail, "second");
-
+        EXPECT_EQ(transaction.RunSqlStatementReturningOneValue(
+                      "SELECT COUNT(*) FROM people WHERE email = $1",
+                      std::string(kTestSchedulerEmail)),
+                  "1");
         PersonHelper personHelper(databaseHelper);
         EXPECT_TRUE(personHelper.VerifyPassword(
             transaction, kTestSchedulerEmail, "first"));
         EXPECT_FALSE(personHelper.VerifyPassword(
             transaction, kTestSchedulerEmail, "second"));
+        EXPECT_EQ(SchedulerPermissions(transaction, databaseHelper),
+                  StringArray({std::string(DbSchema::kPermissionRunScheduledJobs),
+                               std::string(kTestRunJobsPermission)}));
     });
 }
 
-TEST(ServiceAccountTest, EnsureThrowsWhenManageSubscriptionsMissing) {
+// The framework seed hasn't run: the throw comes before any write, so no
+// person and no role are left behind, and the transaction is still usable.
+TEST(ServiceAccountTest, EnsureWithoutRunScheduledJobsThrowsAndWritesNothing) {
     TestDatabaseUtil testDb;
-    testDb.RunInTransaction("EnsureThrowsWhenManageSubscriptionsMissing",
+    testDb.RunInTransaction("EnsureWithoutRunScheduledJobsThrows",
         [&](Transaction& transaction) {
         DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
-        // Intentionally do NOT seed the permission row.
+        SeedPermission(transaction, databaseHelper, kTestRunJobsPermission);
 
         EXPECT_THROW(
-            EnsureSchedulerServiceAccount(transaction, databaseHelper, kTestSchedulerEmail, "secret"),
+            EnsureSchedulerServiceAccount(
+                transaction, databaseHelper, kTestSchedulerEmail, "secret",
+                {kTestRunJobsPermission}),
             std::runtime_error);
+
+        TableHelpers::People people(databaseHelper);
+        EXPECT_TRUE(people.LookupPersonByEmail(
+            transaction, kTestSchedulerEmail).empty());
+        EXPECT_EQ(transaction.RunSqlStatementReturningOneValue(
+                      "SELECT COUNT(*) FROM roles WHERE name = $1",
+                      std::string(kSchedulerRoleName)),
+                  "0");
+    });
+}
+
+// The same for a missing app permission.
+TEST(ServiceAccountTest, EnsureWithAMissingAppPermissionThrowsAndWritesNothing) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("EnsureWithAMissingAppPermissionThrows",
+        [&](Transaction& transaction) {
+        DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
+        SeedRunScheduledJobs(transaction, databaseHelper);
+        SeedPermission(transaction, databaseHelper, kTestRunJobsPermission);
+
+        EXPECT_THROW(
+            EnsureSchedulerServiceAccount(
+                transaction, databaseHelper, kTestSchedulerEmail, "secret",
+                {kTestRunJobsPermission, kTestReadReportsPermission}),
+            std::runtime_error);
+
+        TableHelpers::People people(databaseHelper);
+        EXPECT_TRUE(people.LookupPersonByEmail(
+            transaction, kTestSchedulerEmail).empty());
+        EXPECT_EQ(transaction.RunSqlStatementReturningOneValue(
+                      "SELECT COUNT(*) FROM roles WHERE name = $1",
+                      std::string(kSchedulerRoleName)),
+                  "0");
+    });
+}
+
+// A rotation (delete the person, re-run) finds the role already there with
+// its links; they aren't added twice, and a repeated name links once, even
+// run_scheduled_jobs named again by the app.
+TEST(ServiceAccountTest, EnsureReusesAnExistingRoleWithoutDuplicateLinks) {
+    TestDatabaseUtil testDb;
+    testDb.RunInTransaction("EnsureReusesAnExistingRoleWithoutDuplicateLinks",
+        [&](Transaction& transaction) {
+        DatabaseHelper databaseHelper = testDb.GetDatabaseHelper();
+        int64_t runScheduledJobsId = SeedRunScheduledJobs(
+            transaction, databaseHelper);
+        SeedPermission(transaction, databaseHelper, kTestRunJobsPermission);
+        TableHelpers::Roles roles(databaseHelper);
+        int64_t roleId = roles.AddRole(
+            transaction, kSchedulerRoleName, "Left from an earlier seed.");
+        TableHelpers::RolePermissions rolePermissions(databaseHelper);
+        rolePermissions.AddRolePermission(
+            transaction, roleId, runScheduledJobsId);
+
+        EnsureSchedulerServiceAccount(
+            transaction, databaseHelper, kTestSchedulerEmail, "secret",
+            {kTestRunJobsPermission, DbSchema::kPermissionRunScheduledJobs,
+             kTestRunJobsPermission});
+
+        EXPECT_EQ(rolePermissions.GetRolePermissionsForRole(
+                      transaction, roleId).size(),
+                  2u);
+        EXPECT_EQ(SchedulerPermissions(transaction, databaseHelper),
+                  StringArray({std::string(DbSchema::kPermissionRunScheduledJobs),
+                               std::string(kTestRunJobsPermission)}));
     });
 }
 

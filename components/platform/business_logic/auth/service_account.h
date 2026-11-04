@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "sql_util/database_access/database_helper.h"
 
@@ -21,10 +22,7 @@ inline constexpr std::string_view kSchedulerServiceAccountLastName =
 inline constexpr std::string_view kSchedulerRoleName = "scheduler";
 inline constexpr std::string_view kSchedulerRoleDescription =
     "Scheduler service-account role. Least-privilege role for the scheduler "
-    "helper executable (manage_subscriptions + manage_class_schedule).";
-
-inline constexpr std::string_view kManageSubscriptionsPermission =
-    "manage_subscriptions";
+    "helper executable: only the permissions its jobs need.";
 
 // Environment variable used by both the database-helper (to seed the row) and
 // the scheduler helper (to log in). Single source of truth.
@@ -49,9 +47,13 @@ std::string ReadSchedulerServiceAccountPassword();
 //     App::kSchedulerServiceAccountEmail) with the password hashed and
 //     email_verified set.
 //   - Creates the `scheduler` role if absent.
-//   - Links the role to the existing manage_subscriptions permission
-//     (throws if the permission row is missing — PopulatePermissions in
-//     create_database.cpp must run first).
+//   - Links the role to run_scheduled_jobs (DbSchema::
+//     kPermissionRunScheduledJobs), which gates the framework's job
+//     endpoints, plus each of `permissionNames`: whatever the app's own job
+//     endpoints check (H13). Pass {} when they all check run_scheduled_jobs.
+//     Throws std::runtime_error, before writing anything, if one of them has
+//     no `permissions` row: the framework and app permission seeds must run
+//     first.
 //   - Assigns the role to the service-account person.
 //
 // If the person row already exists, the function returns immediately.
@@ -61,6 +63,7 @@ void EnsureSchedulerServiceAccount(
     Transaction& transaction,
     DatabaseHelper databaseHelper,
     std::string_view schedulerEmail,
-    std::string_view password);
+    std::string_view password,
+    const std::vector<std::string_view>& permissionNames);
 
 }  // namespace Auth

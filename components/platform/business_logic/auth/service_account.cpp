@@ -1,12 +1,15 @@
 #include "service_account.h"
 
 #include <cstdlib>
+#include <optional>
+#include <set>
 #include <stdexcept>
 #include <string>
 
 #include "business_logic/auth/person.h"
 #include "db_schema/people.h"
 #include "db_schema/permissions.h"
+#include "db_schema/role_permissions.h"
 #include "db_schema/roles.h"
 #include "sql_util/database_access/database_crud_helpers.h"
 #include "sql_util/table_helpers/people.h"
@@ -35,11 +38,30 @@ std::string ReadSchedulerServiceAccountPassword() {
     return std::string(value);
 }
 
+namespace {
+
+// The permission's id, or nullopt when no `permissions` row has that name.
+// DbCrud directly: an empty row on a miss, not an exception.
+std::optional<int64_t> LookupPermissionId(
+    Transaction& transaction,
+    DatabaseHelper databaseHelper,
+    std::string_view permissionName) {
+    KeyValueTable permRow = DbCrud::LookupRowByValue(
+        transaction, databaseHelper,
+        DbSchema::kPermissionsTable, DbSchema::kPermissionsName,
+        permissionName);
+    if (permRow.empty()) return std::nullopt;
+    return std::stoll(permRow.at(std::string(DbSchema::kPermissionsId)));
+}
+
+}  // namespace
+
 void EnsureSchedulerServiceAccount(
     Transaction& transaction,
     DatabaseHelper databaseHelper,
     std::string_view schedulerEmail,
-    std::string_view password) {
+    std::string_view password,
+    const std::vector<std::string_view>& permissionNames) {
 
     // Idempotent guard: check by row presence rather than verified state.
     // PersonHelper::IsPerson() only returns true for verified rows, which
@@ -52,6 +74,26 @@ void EnsureSchedulerServiceAccount(
         // which is preferable to silently overwriting — they get a chance
         // to clear sessions and role assignments first.
         return;
+    }
+
+    // 0. Resolve every permission before writing anything, so a missing one
+    //    leaves no half-made account behind. run_scheduled_jobs comes from
+    //    PopulateFrameworkTables; the app's names from its own seed. Both
+    //    must run first.
+    std::vector<std::string_view> grants = {
+        DbSchema::kPermissionRunScheduledJobs};
+    grants.insert(grants.end(), permissionNames.begin(), permissionNames.end());
+    std::vector<int64_t> permissionIds;
+    for (std::string_view name : grants) {
+        std::optional<int64_t> permissionId =
+            LookupPermissionId(transaction, databaseHelper, name);
+        if (!permissionId) {
+            throw std::runtime_error(
+                "EnsureSchedulerServiceAccount: the " + std::string(name) +
+                " permission is missing from the database. The permission "
+                "seed must run before this function.");
+        }
+        permissionIds.push_back(*permissionId);
     }
 
     // 1. Create the person row.
@@ -89,43 +131,21 @@ void EnsureSchedulerServiceAccount(
         roleId = std::stoll(roleRow.at(std::string(DbSchema::kRolesId)));
     }
 
-    // 3. Link the role to the existing manage_subscriptions permission.
-    //    PopulatePermissions in create_database.cpp creates this row before
-    //    EnsureSchedulerServiceAccount runs. Same DbCrud-direct pattern as
-    //    above so we get an empty-on-miss instead of an exception.
-    KeyValueTable permRow = DbCrud::LookupRowByValue(
-        transaction, databaseHelper,
-        DbSchema::kPermissionsTable, DbSchema::kPermissionsName,
-        kManageSubscriptionsPermission);
-    if (permRow.empty()) {
-        throw std::runtime_error(
-            "EnsureSchedulerServiceAccount: manage_subscriptions permission "
-            "is missing from the database. PopulatePermissions must run "
-            "before this function.");
-    }
-    int64_t permId = std::stoll(
-        permRow.at(std::string(DbSchema::kPermissionsId)));
-
+    // 3. Link the role to each permission it doesn't already hold. The role
+    //    survives a password rotation (delete the person, re-run), so its
+    //    links may already be there; a repeated name links once.
     TableHelpers::RolePermissions rolePermissions(databaseHelper);
-    rolePermissions.AddRolePermission(transaction, roleId, permId);
-
-    // 3b. The scheduler also drives the class crons — send_signup_open_reminders
-    //     (Classes Phase 11 §6), finalize_class_attendance,
-    //     send_instructor_exception_digests, run_series_min_attendees_check,
-    //     send_favorite_instructor_schedule_alerts (Classes Phase 13 §4.8) —
-    //     all of which gate on manage_class_schedule. Grant it so those POSTs
-    //     authorize. PopulatePermissions seeds this permission before this
-    //     function runs in production; we grant it only when present so the
-    //     auth unit tests that seed only manage_subscriptions are unaffected.
-    KeyValueTable classSchedulePermRow = DbCrud::LookupRowByValue(
-        transaction, databaseHelper,
-        DbSchema::kPermissionsTable, DbSchema::kPermissionsName,
-        DbSchema::kPermissionManageClassSchedule);
-    if (!classSchedulePermRow.empty()) {
-        int64_t classSchedulePermId = std::stoll(
-            classSchedulePermRow.at(std::string(DbSchema::kPermissionsId)));
-        rolePermissions.AddRolePermission(
-            transaction, roleId, classSchedulePermId);
+    std::set<int64_t> linkedPermissionIds;
+    for (const KeyValueTable& link :
+         rolePermissions.GetRolePermissionsForRole(transaction, roleId)) {
+        linkedPermissionIds.insert(std::stoll(
+            link.at(std::string(DbSchema::kRolePermissionsPermissionId))));
+    }
+    for (int64_t permissionId : permissionIds) {
+        if (linkedPermissionIds.insert(permissionId).second) {
+            rolePermissions.AddRolePermission(
+                transaction, roleId, permissionId);
+        }
     }
 
     // 4. Assign the role to the service-account person.

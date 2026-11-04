@@ -27,6 +27,8 @@ add_subdirectory(business_logic/auth)
 add_subdirectory(business_logic/branding)
 add_subdirectory(business_logic/images)
 add_subdirectory(business_logic/migration)
+# H13: the framework's scheduled jobs (cleanups + the admin-alerts digest).
+add_subdirectory(business_logic/scheduled_jobs)
 # Multi-tenancy control plane (tenancy plan Phase 1): control-DB access +
 # TenantResolver. Depends on the tenants schema/table-helper added below.
 add_subdirectory(business_logic/tenancy)
