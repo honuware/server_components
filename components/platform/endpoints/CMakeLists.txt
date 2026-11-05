@@ -165,6 +165,8 @@ target_sources(${HONUWARE_TESTS_TARGET}
     upload_user_photo_test.cpp
     delete_photo_test.cpp
     get_photo_test.cpp
+    # H15: the per-row rule on the public scaled-photo read.
+    get_scaled_photo_test.cpp
     # H13: the scheduled-job endpoints.
     scheduled_job_test_support.h
     scheduled_job_test_support.cpp

@@ -107,18 +107,29 @@ void GetScaledPhoto(
     DatabaseHelper databaseHelper = endpointAuthHelper.GetDatabaseHelper();
 
     transactionProvider->RunInTransaction([&](Transaction& transaction) {
+        // H15: a listed table can still keep some of its rows private — the
+        // app's per-row rule (a pending event's photo, say). Such a row takes
+        // the AUTHENTICATED path below, exactly as an unlisted table does.
+        const bool isPublicRow = isPublicTable &&
+            publicPhotoTables->IsRowPublic(
+                databaseHelper, transaction, tableName, tableItemId);
+        if (!isPublicRow && !session.IsLoggedIn()) {
+            resp = ErrorResponse::NotAuthenticated("Login required");
+            return;
+        }
+
         // IsTableAllowed runs for the AUTHENTICATED path — it's the
         // table-probing defense (a logged-in non-admin shouldn't be
         // able to fetch scaled photos for, say, `payments`). For the
-        // PUBLIC path, `IsPublicScaledPhotoTable` is itself the
+        // PUBLIC path, `PublicPhotoTables` is itself the
         // allow-list — we already decided which tables anonymous
         // callers may read, and the base `allowed_tables` table is
         // populated narrowly (`classes`, `products`) so the
         // unauthenticated branch would otherwise reject
         // `home_page_photos` here even though we already permitted
-        // it above. Bypass IsTableAllowed for the public allow-list
-        // entries; keep it for everything else.
-        if (!isPublicTable &&
+        // it above. Bypass IsTableAllowed for the public rows; keep it
+        // for everything else.
+        if (!isPublicRow &&
             !endpointAuthHelper.IsTableAllowed(transaction, tableName)) {
             resp = ErrorResponse::ValidationError(
                 "Table(" + std::string(tableName) + ") is not an allowed table.");
@@ -188,7 +199,8 @@ void GetScaledPhoto(
         // Cache policy splits on the public/authenticated path. BOTH
         // sides revalidate; they differ only in who may store the bytes.
         //
-        // - PUBLIC path (any entry in `IsPublicScaledPhotoTable`):
+        // - PUBLIC path (a row of a `PublicPhotoTables` table that its
+        //   rule, if any, accepts):
         //   `public` lets CloudFront and the browser STORE the image,
         //   so the bytes still come from the edge rather than the
         //   origin. `no-cache` makes them ASK first — a conditional
@@ -211,7 +223,9 @@ void GetScaledPhoto(
         //   the payload is a 304 with no body.
         //
         // - AUTHENTICATED path (everything else): the response may
-        //   contain user-specific imagery (profile photos, etc.).
+        //   contain user-specific imagery (profile photos, etc.), or a
+        //   row the app keeps private for now (H15) — which must not sit
+        //   in the edge cache once a curator has seen it.
         //   `private` is load-bearing — it forbids shared caches
         //   (CloudFront) from storing the response at all, so a
         //   future config drift in CloudFront's cache-key behavior
@@ -219,7 +233,7 @@ void GetScaledPhoto(
         //   B. `no-cache` still lets the BROWSER store it
         //   (revalidating on each use), which gives the user's own
         //   tabs free reuse without leaking across users.
-        if (isPublicTable) {
+        if (isPublicRow) {
             resp.set_header("Cache-Control", "public, no-cache");
         } else {
             resp.set_header("Cache-Control", "private, no-cache");

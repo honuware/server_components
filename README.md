@@ -523,7 +523,9 @@ consumers built so far). Each step names the seam it plugs into:
    pointer dead-strips at `-O2` and every route 404s in Release.
 5. **Wire the framework seams.** Per-`WebApp` via `WebApp::SetService<T>()`:
    `PostRegisterHook` (side effects after `/api/register`) and
-   `PublicPhotoTables` (the anonymous-read allow-list for `get_scaled_photo`).
+   `PublicPhotoTables` (the anonymous-read allow-list for `get_scaled_photo`,
+   with an optional per-row rule, `isRowPublic`, for a table whose rows go
+   public one at a time — a refused row takes the signed-in path).
    Unregistered ⇒ safe default (no hook / nothing public).
 6. **Secrets.** Framework secret defaults come from `Secrets::Values`; layer your
    app/brand defaults on top. At-rest `config_secrets` need `HONUWARE_SECRET_KEY`
