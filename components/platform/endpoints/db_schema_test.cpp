@@ -394,5 +394,38 @@ namespace Endpoints {
             });
         }
 
+        // A display template names a table's columns, so it is filtered to the
+        // caller's allowed tables like the column data is. Signed out here, so
+        // only the app's base list applies: "people" is on it, "roles" isn't.
+        TEST(DbSchemaTest, GetDbSchemaDisplayTemplatesOnlyForAllowedTables) {
+            TestDatabaseUtil testDatabaseUtil(TestDatabaseUtil::SchemaMode::Empty);
+            testDatabaseUtil.RunInTransaction("GetDbSchemaDisplayTemplatesAllowed",
+                [&](Transaction& transaction) {
+                DatabaseHelper databaseHelper = testDatabaseUtil.GetDatabaseHelper();
+                EndpointTestHelper endpointTestHelper(transaction, testDatabaseUtil);
+
+                endpointTestHelper.AddAllowedTable(transaction, "people");
+                endpointTestHelper.AddAdminTopLevelTable(transaction, "people");
+
+                TableHelpers::AdminTableDisplayTemplate displayTemplateHelper(databaseHelper);
+                displayTemplateHelper.SetDisplayTemplate(
+                    transaction, "people", "{first_name} {last_name}");
+                displayTemplateHelper.SetDisplayTemplate(
+                    transaction, "roles", "{name}");
+
+                crow::request req;
+                req.url = "/api/get_db_schema";
+                crow::response resp;
+                endpointTestHelper.GetWebApp().GetApp().handle_full(req, resp);
+
+                ASSERT_EQ(resp.code, 200);
+                Json::Value body = Json::Value::FromText(resp.body);
+                const auto& templates = body["display_templates"].GetChildren();
+                EXPECT_EQ(templates.at("people").Get<std::string>(),
+                    "{first_name} {last_name}");
+                EXPECT_EQ(templates.count("roles"), 0u);
+            });
+        }
+
     } // namespace
 }  // namespace Endpoints

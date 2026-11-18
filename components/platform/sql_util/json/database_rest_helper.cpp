@@ -688,10 +688,14 @@ Json::Value DatabaseRESTHelper::DatabaseMetadata(
         stringSetAllowedTables,
         photoSupportedTables);
 
-    // Display templates for FK picker
+    // Display templates for FK picker -- only for tables this caller may read,
+    // like every other part of this response. A picker can't fetch rows from
+    // any other table anyway (get_fk_options checks the same list).
     Json::JsonObject displayTemplatesJson;
     for (const auto& [tableName, templateStr] : displayTemplates) {
-        displayTemplatesJson[tableName] = templateStr;
+        if (SetContains(stringSetAllowedTables, tableName)) {
+            displayTemplatesJson[tableName] = templateStr;
+        }
     }
     databaseMetadata["display_templates"] =
         Json::Value(std::move(displayTemplatesJson));

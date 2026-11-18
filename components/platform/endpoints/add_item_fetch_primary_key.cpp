@@ -17,10 +17,13 @@ namespace Endpoints {
                     resp = ErrorResponse::BadRequest("No message body.");
                     return;
                 }
-                Json::Value result = AddItemFetchPrimaryKey(endpointAuthHelper, Json::Value::FromText(req.body));
-                resp.code = 200;
-                resp.set_header("Content-Type", "application/json");
-				resp.write(result.ToString());
+                std::optional<Json::Value> result = AddItemFetchPrimaryKey(
+                    endpointAuthHelper, Json::Value::FromText(req.body));
+                if (result.has_value()) {
+                    resp.code = 200;
+                    resp.set_header("Content-Type", "application/json");
+                    resp.write(result->ToString());
+                }
             }
             catch (std::invalid_argument& e) {
                 // Phase 7.3 of the security review: input-validation
@@ -52,10 +55,10 @@ namespace Endpoints {
 
     }  // namespace
 
-    Json::Value AddItemFetchPrimaryKey(
+    std::optional<Json::Value> AddItemFetchPrimaryKey(
         EndpointAuthHelper& endpointAuthHelper,
         const Json::Value& message) {
-        Json::Value result;
+        std::optional<Json::Value> result;
         endpointAuthHelper.GetTransactionProvider()->RunInTransaction([&](Transaction& transaction) {
 			if (!message.HasChildren()) {
 				throw std::invalid_argument("Invalid JSON object.");
@@ -72,6 +75,15 @@ namespace Endpoints {
                 throw std::invalid_argument("table_name must be a string.");
             }
             std::string tableName = tableNameValue->Get<std::string>();
+            // Write access first: 401 signed out, 403 without a grant. Reading
+            // a table (IsTableAllowed, which includes the app's public list)
+            // never confers the right to change it.
+            if (!endpointAuthHelper.RequireTableWriteAccess(
+                    transaction, tableName, endpointAuthHelper.Response())) {
+                return;
+            }
+            // Then the table must be one the caller can reach at all, so an
+            // admin still can't write to a table that is on no list.
             if (!endpointAuthHelper.IsTableAllowed(transaction, tableName)) {
                 std::stringstream ss;
                 ss << "Table(" << tableName << ") is not an allowed table.";

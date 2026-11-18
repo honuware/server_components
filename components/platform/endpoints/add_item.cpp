@@ -17,8 +17,9 @@ namespace Endpoints {
 					resp = ErrorResponse::BadRequest("No message body.");
 					return;
 				}
-				AddItem(endpointAuthHelper, Json::Value::FromText(req.body));
-                resp = crow::response(200);
+				if (AddItem(endpointAuthHelper, Json::Value::FromText(req.body))) {
+					resp = crow::response(200);
+				}
             }
             catch (std::exception& e) {
                 resp = ErrorResponse::ValidationError(e.what());
@@ -39,7 +40,8 @@ namespace Endpoints {
 
     }  // namespace
 
-    void AddItem(EndpointAuthHelper& endpointAuthHelper, const Json::Value& message) {
+    bool AddItem(EndpointAuthHelper& endpointAuthHelper, const Json::Value& message) {
+        bool written = false;
         endpointAuthHelper.GetTransactionProvider()->RunInTransaction([&](Transaction& transaction) {
 			if (!message.HasChildren()) {
 				throw std::invalid_argument("Invalid JSON object.");
@@ -56,6 +58,15 @@ namespace Endpoints {
 				throw std::invalid_argument("table_name must be a string.");
 			}
 			std::string tableName = tableNameValue->Get<std::string>();
+            // Write access first: 401 signed out, 403 without a grant. Reading
+            // a table (IsTableAllowed, which includes the app's public list)
+            // never confers the right to change it.
+            if (!endpointAuthHelper.RequireTableWriteAccess(
+                    transaction, tableName, endpointAuthHelper.Response())) {
+                return;
+            }
+            // Then the table must be one the caller can reach at all, so an
+            // admin still can't write to a table that is on no list.
             if (!endpointAuthHelper.IsTableAllowed(transaction, tableName)) {
                 std::stringstream ss;
                 ss << "Table(" << tableName << ") is not an allowed table.";
@@ -65,7 +76,9 @@ namespace Endpoints {
             DatabaseRESTHelper restHelper(endpointAuthHelper.GetDatabaseHelper());
             restHelper.AddTableValue(
 				transaction, endpointAuthHelper.GetDatabaseInfo(), tableName, *valueValue);
+            written = true;
             });
+        return written;
     }
 
 }  // namespace Endpoints

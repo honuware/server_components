@@ -15,7 +15,12 @@ namespace Endpoints {
     //   column_value: {column_value},
     //   value: {object_data}
     // }
-    void UpdateItem(
+    //
+    // A write needs write access to the table (EndpointAuthHelper::
+    // RequireTableWriteAccess: an admin, or a grant through
+    // admin_table_permissions), not just read access. Returns false when that
+    // is refused; the 401/403 is then already in endpointAuthHelper.Response().
+    bool UpdateItem(
         EndpointAuthHelper& endpointAuthHelper,
 		const Json::Value& message);
 

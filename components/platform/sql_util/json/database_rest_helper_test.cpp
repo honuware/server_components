@@ -1608,11 +1608,14 @@ namespace
                 displayTemplates,
                 100);
 
-            // Verify display_templates
+            // Verify display_templates: only the tables this caller may read.
+            // "roles" has a template but isn't in the allowed list, so it's
+            // left out, as its columns would be.
             const auto& templates = result["display_templates"].GetChildren();
             EXPECT_EQ(templates.at("people").Get<std::string>(),
                 "{first_name} {last_name}");
-            EXPECT_EQ(templates.at("roles").Get<std::string>(), "{name}");
+            EXPECT_EQ(templates.count("roles"), 0u);
+            EXPECT_EQ(templates.size(), 1u);
 
             // Verify fk_picker_preload_threshold
             EXPECT_EQ(result["fk_picker_preload_threshold"].Get<int64_t>(), 100);

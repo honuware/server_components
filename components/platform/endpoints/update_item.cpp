@@ -18,8 +18,9 @@ namespace Endpoints {
 					resp = ErrorResponse::BadRequest("No message body.");
 					return;
 				}
-				UpdateItem(endpointAuthHelper, Json::Value::FromText(req.body));
-                resp = crow::response(200);
+				if (UpdateItem(endpointAuthHelper, Json::Value::FromText(req.body))) {
+					resp = crow::response(200);
+				}
             }
             catch (std::exception& e) {
                 resp = ErrorResponse::ValidationError(e.what());
@@ -40,9 +41,10 @@ namespace Endpoints {
 
     }  // namespace
 
-    void UpdateItem(
+    bool UpdateItem(
         EndpointAuthHelper& endpointAuthHelper,
         const Json::Value& message) {
+        bool written = false;
         endpointAuthHelper.GetTransactionProvider()->RunInTransaction([&](Transaction& transaction) {
 			if (!message.HasChildren()) {
 				throw std::invalid_argument("Invalid JSON object.");
@@ -71,6 +73,15 @@ namespace Endpoints {
 			std::string tableName = tableNameValue->Get<std::string>();
 			std::string columnName = columnNameValue->Get<std::string>();
 			std::string columnValue = columnValueValue->Get<std::string>();
+            // Write access first: 401 signed out, 403 without a grant. Reading
+            // a table (IsTableAllowed, which includes the app's public list)
+            // never confers the right to change it.
+            if (!endpointAuthHelper.RequireTableWriteAccess(
+                    transaction, tableName, endpointAuthHelper.Response())) {
+                return;
+            }
+            // Then the table must be one the caller can reach at all, so an
+            // admin still can't write to a table that is on no list.
             if (!endpointAuthHelper.IsTableAllowed(transaction, tableName)) {
                 std::stringstream ss;
                 ss << "Table(" << tableName << ") is not an allowed table.";
@@ -85,7 +96,9 @@ namespace Endpoints {
                 columnName,
                 columnValue,
                 *valueValue);
+            written = true;
             });
+        return written;
     }
 
 }  // namespace Endpoints

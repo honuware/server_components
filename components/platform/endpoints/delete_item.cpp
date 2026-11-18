@@ -21,8 +21,9 @@ namespace Endpoints {
             try {
                 EndpointAuthHelper endpointAuthHelper(*webApp, req, resp);
                 endpointAuthHelper.Initialize();
-                DeleteItem(endpointAuthHelper, tableName, columnName, value);
-                resp = crow::response(200);
+                if (DeleteItem(endpointAuthHelper, tableName, columnName, value)) {
+                    resp = crow::response(200);
+                }
             }
             catch (std::exception& e) {
                 resp = ErrorResponse::ValidationError(e.what());
@@ -33,9 +34,12 @@ namespace Endpoints {
         class SetupRouting : public RoutingBase {
         public:
             void AddRoute(WebApp* webApp) override {
+                // POST only. This route used to have no .methods(), which Crow
+                // registers as GET, and the CSRF guard skips GET.
                 CROW_ROUTE(
                     webApp->GetApp(),
-                    "/api/delete_item/<string>/<string>/<string>")(
+                    "/api/delete_item/<string>/<string>/<string>")
+                    .methods(crow::HTTPMethod::Post)(
                     [=](
                         const crow::request& req,
                         crow::response& resp,
@@ -49,12 +53,22 @@ namespace Endpoints {
 
     }  // namespace
 
-    void DeleteItem(
+    bool DeleteItem(
         EndpointAuthHelper& endpointAuthHelper,
         std::string_view tableName,
         std::string_view columnName,
         std::string_view value) {
+        bool deleted = false;
         endpointAuthHelper.GetTransactionProvider()->RunInTransaction([&](Transaction& transaction) {
+            // Write access first: 401 signed out, 403 without a grant. Reading
+            // a table (IsTableAllowed, which includes the app's public list)
+            // never confers the right to change it.
+            if (!endpointAuthHelper.RequireTableWriteAccess(
+                    transaction, tableName, endpointAuthHelper.Response())) {
+                return;
+            }
+            // Then the table must be one the caller can reach at all, so an
+            // admin still can't delete from a table that is on no list.
             if (!endpointAuthHelper.IsTableAllowed(transaction, tableName)) {
                 std::stringstream ss;
                 ss << "Table(" << tableName << ") is not an allowed table.";
@@ -88,7 +102,9 @@ namespace Endpoints {
                 tableName,
                 columnName,
                 value);
+            deleted = true;
             });
+        return deleted;
     }
 
 }  // namespace Endpoints
