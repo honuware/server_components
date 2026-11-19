@@ -7,9 +7,12 @@ target_sources(honuware_platform PRIVATE
     image_helper.cpp
     image_key_value_table.h
     image_key_value_table.cpp
+    image_upload_limit.h
+    image_upload_limit.cpp
 )
 
 target_sources(${HONUWARE_TESTS_TARGET} PUBLIC
     image_helper_test.cpp
     image_key_value_table_test.cpp
+    image_upload_limit_test.cpp
 )

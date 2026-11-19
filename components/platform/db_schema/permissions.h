@@ -46,6 +46,11 @@ namespace DbSchema {
     // endpoints, not a table, so it opens nothing in the generic CRUD editor.
     constexpr std::string_view kPermissionRunScheduledJobs = "run_scheduled_jobs";
 
+    // The site's administration: user accounts, and the site-wide settings
+    // such as the image upload limit (/api/admin/image_upload_settings). The
+    // framework seed creates it and grants it to Administrator.
+    constexpr std::string_view kPermissionAdminPortal = "admin_portal";
+
     // Creates the permissions table
     void MakePermissionsTable(DatabaseInfo databaseInfo);
 

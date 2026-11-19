@@ -21,6 +21,8 @@ target_sources(honuware_data
     pooled_transaction_provider.cpp
     production_transaction_provider.h
     production_transaction_provider.cpp
+    schema_check.h
+    schema_check.cpp
     transaction.h
     transaction_impl.h
     transaction_impl.cpp
@@ -39,6 +41,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     extensions_test.cpp
     pooled_transaction_provider_test.cpp
     production_transaction_provider_test.cpp
+    schema_check_test.cpp
     transaction_impl_test.cpp
 )
 

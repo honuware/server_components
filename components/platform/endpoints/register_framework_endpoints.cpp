@@ -41,6 +41,7 @@
 #include "endpoints/upload_user_photo.h"
 #include "endpoints/delete_photo.h"
 #include "endpoints/get_photo.h"
+#include "endpoints/image_upload_settings.h"
 // Phase 0.2b (H8): register + get_scaled_photo (with framework seams).
 #include "endpoints/register.h"
 #include "endpoints/get_scaled_photo.h"
@@ -131,6 +132,10 @@ void RegisterFrameworkEndpoints() {
     anchor = reinterpret_cast<AnchorFunc>(&PostUploadUserPhoto);
     anchor = reinterpret_cast<AnchorFunc>(&DeletePhoto);
     anchor = reinterpret_cast<AnchorFunc>(&GetPhoto);
+    // CommunityFinder CM3 Phase 2 §13.1: the image upload limit.
+    anchor = reinterpret_cast<AnchorFunc>(&GetImageUploadLimit);
+    anchor = reinterpret_cast<AnchorFunc>(&GetImageUploadSettings);
+    anchor = reinterpret_cast<AnchorFunc>(&PutImageUploadSettings);
 
     // Phase 0.2b (H8): register + get_scaled_photo.
     anchor = reinterpret_cast<AnchorFunc>(&Register);

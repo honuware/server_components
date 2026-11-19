@@ -2,6 +2,9 @@
 
 #include <chrono>
 #include <mutex>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include <crow/http_request.h>
 #include <crow/http_response.h>
@@ -28,6 +31,12 @@
 // Origin/Referer checks for those bootstrap endpoints are deferred to a
 // follow-up.
 //
+// An app can exempt a route of its own the same way, with
+// AllowWithoutToken, when it serves someone who isn't signed in and acts
+// on no one's session: CommunityFinder's public photo-removal request is
+// the first (CM3 Phase 2 §12). A forged request to such a route carries
+// no authority the attacker doesn't already have by calling it directly.
+//
 // Test integration: production WebApp leaves the guard enabled; the
 // test fixture EndpointTestHelper calls `SetEnabled(false)` after
 // construction so existing endpoint tests can keep posting without
@@ -51,8 +60,19 @@ public:
     void SetEnabled(bool enabled) { enabled_ = enabled; }
     bool IsEnabled() const { return enabled_; }
 
+    // Lets a state-changing request to this exact path (a query string
+    // aside) through without a token, as the bootstrap paths are. For a
+    // route that takes no session: it must not read or change anything
+    // that belongs to a signed-in person. Call it from the route's
+    // AddRoute, while the app is set up: the list isn't locked, so it must
+    // not change once requests are being served. A path given twice is
+    // kept once.
+    void AllowWithoutToken(std::string_view path);
+    bool IsAllowedWithoutToken(std::string_view url) const;
+
 private:
     bool enabled_ = true;
+    std::vector<std::string> allowedWithoutToken_;
 
     // Throttle for rejection logs: at most one log line per minute
     // across the whole process so a misbehaving client (or a probe)

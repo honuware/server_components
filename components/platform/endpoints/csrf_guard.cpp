@@ -104,6 +104,20 @@ std::string GetCookieValue(std::string_view header, std::string_view name) {
 
 CsrfGuard::CsrfGuard() = default;
 
+void CsrfGuard::AllowWithoutToken(std::string_view path) {
+    if (!IsAllowedWithoutToken(path)) {
+        allowedWithoutToken_.emplace_back(PathOnly(path));
+    }
+}
+
+bool CsrfGuard::IsAllowedWithoutToken(std::string_view url) const {
+    std::string_view path = PathOnly(url);
+    for (const std::string& allowed : allowedWithoutToken_) {
+        if (path == allowed) return true;
+    }
+    return false;
+}
+
 void CsrfGuard::before_handle(
     crow::request& req,
     crow::response& res,
@@ -111,6 +125,7 @@ void CsrfGuard::before_handle(
     if (!enabled_) return;
     if (!IsStateChanging(req.method)) return;
     if (IsBootstrap(req.url)) return;
+    if (IsAllowedWithoutToken(req.url)) return;
 
     std::string cookieHeader = req.get_header_value("Cookie");
     std::string csrft = GetCookieValue(cookieHeader, kCsrfCookieName);

@@ -20,6 +20,8 @@
 //   - Bootstrap paths (/api/login, /api/register, /api/remember,
 //     /api/verify, /api/forgot_password, /api/reset_password) bypass —
 //     including with a query string.
+//   - An app's own token-free route (AllowWithoutToken) bypasses, by
+//     exact path; nothing else does.
 //   - Missing csrft cookie → 403 with the right JSON body.
 //   - Missing X-CSRF-Token header → 403.
 //   - Mismatched cookie / header → 403.
@@ -184,6 +186,53 @@ TEST(CsrfGuardTest, BootstrapPrefixIsExactMatchOnly) {
     guard.before_handle(req, res, ctx);
     EXPECT_TRUE(WasRejected(res))
         << "/api/login_evil must NOT be treated as a bootstrap path";
+}
+
+// ---------- An app's own token-free routes ----------
+
+// CommunityFinder's photo-removal request is posted by visitors who have
+// never signed in, so they carry no csrft cookie.
+TEST(CsrfGuardTest, AnAppCanLetOneOfItsRoutesThroughWithoutAToken) {
+    CsrfGuard guard;
+    guard.AllowWithoutToken("/api/photo_removal_requests");
+    EXPECT_TRUE(guard.IsAllowedWithoutToken("/api/photo_removal_requests"));
+
+    for (const char* url : {"/api/photo_removal_requests",
+                            "/api/photo_removal_requests?from=gallery"}) {
+        auto req = MakeReq(crow::HTTPMethod::Post, url);
+        crow::response res;
+        CsrfGuard::context ctx;
+        guard.before_handle(req, res, ctx);
+        EXPECT_FALSE(WasRejected(res)) << url;
+    }
+}
+
+TEST(CsrfGuardTest, AnAppsTokenFreeRouteIsAnExactMatchAndNoOtherRouteGetsThrough) {
+    CsrfGuard guard;
+    guard.AllowWithoutToken("/api/photo_removal_requests");
+    for (const char* url : {"/api/photo_removal_requests_evil",
+                            "/api/photo_removal_requests/1",
+                            "/api/photo_removal",
+                            "/api/some_state_change"}) {
+        auto req = MakeReq(crow::HTTPMethod::Post, url);
+        crow::response res;
+        CsrfGuard::context ctx;
+        guard.before_handle(req, res, ctx);
+        EXPECT_TRUE(WasRejected(res)) << url;
+        EXPECT_EQ(res.code, 403) << url;
+    }
+}
+
+TEST(CsrfGuardTest, NothingIsTokenFreeUntilAnAppSaysSoAndSayingItTwiceIsHarmless) {
+    CsrfGuard guard;
+    EXPECT_FALSE(guard.IsAllowedWithoutToken("/api/photo_removal_requests"));
+    // A query string on the registered path is dropped, as it is on a request.
+    guard.AllowWithoutToken("/api/photo_removal_requests?ignored=1");
+    guard.AllowWithoutToken("/api/photo_removal_requests");
+    EXPECT_TRUE(guard.IsAllowedWithoutToken("/api/photo_removal_requests"));
+    EXPECT_FALSE(guard.IsAllowedWithoutToken("/api/other"));
+    // A bootstrap path is let through by its own rule, not this list.
+    EXPECT_FALSE(guard.IsAllowedWithoutToken("/api/login"));
 }
 
 // ---------- Token enforcement ----------

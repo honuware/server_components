@@ -91,6 +91,9 @@ target_sources(honuware_platform
     delete_photo.cpp
     get_photo.h
     get_photo.cpp
+    # CommunityFinder CM3 Phase 2 §13.1: the image upload limit.
+    image_upload_settings.h
+    image_upload_settings.cpp
     # Phase 0.2b (H8): register + get_scaled_photo, with their framework seams
     # (PostRegisterHook / PublicPhotoTables — app-configured via WebApp::SetService).
     registration_hooks.h
@@ -165,6 +168,7 @@ target_sources(${HONUWARE_TESTS_TARGET}
     upload_user_photo_test.cpp
     delete_photo_test.cpp
     get_photo_test.cpp
+    image_upload_settings_test.cpp
     # H15: the per-row rule on the public scaled-photo read.
     get_scaled_photo_test.cpp
     # H13: the scheduled-job endpoints.
